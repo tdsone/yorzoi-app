@@ -20,3 +20,10 @@ Response
     annotation: [str] // array of track names
 }
 ```
+
+# Next Steps
+1. Once, the preprint is out: publish the model as a package on pypi.
+2. Finish backend:
+    1. Load the model
+    2. Have the model make predictions
+    3. Send predictions in json format back to client
