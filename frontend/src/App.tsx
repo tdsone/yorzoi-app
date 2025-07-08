@@ -20,7 +20,7 @@ function App() {
 
     try {
       const response = await fetch(
-        "https://tom-ellis-lab--yorzoi-app-model-generate.modal.run",
+        "https://tom-ellis-lab--yorzoi-app-fastapi-app.modal.run/generate",
         {
           method: "POST",
           headers: {
