@@ -1,4 +1,4 @@
-# Clex App and API
+# Yorzoi Website and API
 
 Clex is freely available at domain.com
 
