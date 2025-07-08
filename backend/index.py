@@ -50,7 +50,8 @@ def fastapi_app():
 
     # --- CORS CONFIGURATION ---
     allowed_origins = [
-        "https://your-frontend-domain.com",  # TODO: replace with real prod domain(s)
+        "https://yorzoi.eu",
+        "https://www.yorzoi.eu",
         "http://localhost:5173",  # local dev
         "http://127.0.0.1:5173",
     ]
