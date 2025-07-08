@@ -1,8 +1,6 @@
 # Yorzoi Website and API
 
-Clex is freely available at domain.com
-
-Use Clex (RNA-seq coverage prediction from DNA) without coding.
+Yorzoi  (RNA-seq coverage prediction from DNA) is freely available at yorzoi.eu without coding and via API at https://tom-ellis-lab--yorzoi-app-model-generate.modal.run
 
 ## API
 
