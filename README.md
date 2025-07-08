@@ -1,6 +1,6 @@
 # Yorzoi Website and API
 
-Yorzoi  (RNA-seq coverage prediction from DNA) is freely available at yorzoi.eu without coding and via API at https://tom-ellis-lab--yorzoi-app-model-generate.modal.run
+Yorzoi  (RNA-seq coverage prediction from DNA) is freely available at [yorzoi.eu](https://www.yorzoi.eu) without coding and via API at https://tom-ellis-lab--yorzoi-app-model-generate.modal.run
 
 ## API
 
