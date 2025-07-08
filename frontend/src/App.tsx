@@ -19,13 +19,16 @@ function App() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/predict-coverage", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ sequence: dnaSequence }),
-      });
+      const response = await fetch(
+        "https://tom-ellis-lab--yorzoi-app-model-generate.modal.run",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ sequences: [dnaSequence] }),
+        }
+      );
 
       const data = await response.json();
       console.log("Prediction result:", data);

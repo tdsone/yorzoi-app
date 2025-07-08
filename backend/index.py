@@ -8,9 +8,10 @@ tag = f"{cuda_version}-{flavor}-{operating_sys}"
 
 image = (
     modal.Image.from_registry(f"nvidia/cuda:{tag}", add_python="3.9")
-    .pip_install( 
+    .pip_install(
         "yorzoi==0.0.3",
-        "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiTRUE-cp39-cp39-linux_x86_64.whl"
+        "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiTRUE-cp39-cp39-linux_x86_64.whl",
+        "fastapi[standard]"
     )
 )
 
@@ -18,68 +19,86 @@ app = modal.App("yorzoi-app")
 
 MINUTES = 1
 
-@app.cls(
+@app.function(
     gpu="A100",
     timeout=20 * MINUTES,
     scaledown_window=20 * MINUTES,
     image=image,
 )
 @modal.concurrent(max_inputs=100)
-class Model:
+@modal.asgi_app()
+def fastapi_app():
+    """ASGI FastAPI application with CORS enabled."""
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel, conlist
+    from typing import List
+    import torch
+    import time
+    from uuid import uuid4
+    import random
+    from yorzoi.dataset import GenomicDataset
+    from yorzoi.model.borzoi import Borzoi
+    from yorzoi.utils import untransform_then_unbin
 
-    @modal.enter()
-    def start_runtime(self):
-        from yorzoi.model.borzoi import Borzoi
-        self.model = Borzoi.from_pretrained("tom-ellis-lab/yorzoi")
-        self.model.to("cuda:0")
-        self.model.eval()
+    # Load model once per container
+    model = Borzoi.from_pretrained("tom-ellis-lab/yorzoi")
+    model.to("cuda:0")
+    model.eval()
 
-    @modal.fastapi_endpoint(method="POST", docs=True)
-    def generate(self, request: dict) -> str:
-        import time
-        from uuid import uuid4
+    app = FastAPI(title="Yorzoi API with CORS")
 
+    # --- CORS CONFIGURATION ---
+    allowed_origins = [
+        "https://your-frontend-domain.com",  # TODO: replace with real prod domain(s)
+        "http://localhost:5173",  # local dev
+        "http://127.0.0.1:5173",
+    ]
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    class GenerateRequest(BaseModel):
+        sequences: List[str]
+
+        # validate_length and characters
+        def validate_sequences(self):
+            for seq in self.sequences:
+                if len(seq) != 4992:
+                    raise ValueError(f"Sequence length must be 4992, got {len(seq)}")
+                if not set(seq.upper()).issubset({"A", "C", "G", "T"}):
+                    raise ValueError(f"Invalid characters in sequence: {seq}")
+
+    @app.post("/generate")
+    async def generate(req: GenerateRequest):
+        """Predict RNA-seq coverage for the provided DNA sequences."""
         start = time.monotonic_ns()
-        request_id = uuid4()
-        print(f"Generating response to request {request_id}")
+        req_id = uuid4()
+        print(f"Generating response to request {req_id}")
 
-        import random
-        import torch
-        from yorzoi.dataset import GenomicDataset
-        from yorzoi.utils import untransform_then_unbin
+        # Validation & preprocessing
+        req.validate_sequences()
+        seqs_upper = [s.upper() for s in req.sequences]
 
-        # Check if all sequences are valid (length 4992)
-        for sequence in request["sequences"]:
-            if len(sequence) != 4992:
-                raise ValueError(f"Sequence length must be 4992, got {len(sequence)}")
-    
-        # Make sure sequences are all uppercase
-        request["sequences"] = [sequence.upper() for sequence in request["sequences"]]
-
-        # Make sure sequences are valid DNA sequences
-        for sequence in request["sequences"]:
-            if not all(c in "ACGT" for c in sequence):
-                raise ValueError(f"Sequence contains invalid characters: {sequence}")
-
-        sequences = torch.stack([torch.tensor(GenomicDataset.one_hot_encode(sequence), dtype=torch.float32) for sequence in request["sequences"]])
-
-        print(f"\nPredicting RNA-seq coverage for {sequences.shape[0]} sequences\n")
-
-        sequences = sequences.to("cuda:0")
+        # One-hot encode
+        sequences_tensor = torch.stack([
+            torch.tensor(GenomicDataset.one_hot_encode(seq), dtype=torch.float32)
+            for seq in seqs_upper
+        ]).to("cuda:0")
 
         with torch.autocast(device_type="cuda"):
-            predictions_squashed_scale = self.model(sequences)
-            # We remove the binning and squashing transformation to get predictions at 1bp resolution in the original scale.
-            predictions: torch.Tensor = untransform_then_unbin(predictions_squashed_scale, resolution=10)
-
-        print(f"Made predictions for {predictions.shape[0]} sequences, {predictions.shape[1]} tracks each (sense: {predictions.shape[1]//2}, antisense: {predictions.shape[1]//2}), \nacross {predictions.shape[2]} bins (resolution=10 => 3000 bp). The first half of the tracks are \nthe sense strand, the second half are the antisense strand. The first track \nof the first half belongs to the same RNA-seq experiment as the first track \nof the second half and so on.\n")
+            preds_squashed = model(sequences_tensor)
+            preds = untransform_then_unbin(preds_squashed, resolution=10)
 
         print(
-            f"request {request_id} completed in {round((time.monotonic_ns() - start) / 1e9, 2)} seconds"
+            f"request {req_id} completed in {round((time.monotonic_ns() - start) / 1e9, 2)} seconds"
         )
 
-        return [predictions[i].tolist() for i in range(predictions.shape[0])]
+        return [preds[i].tolist() for i in range(preds.shape[0])]
 
-    @modal.exit()  # what should a container do before it shuts down?
-    def shutdown_runtime(self):
-        self.runtime.shutdown()
+    return app
