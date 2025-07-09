@@ -67,13 +67,31 @@ def fastapi_app():
     class GenerateRequest(BaseModel):
         sequences: List[str]
 
-        # validate_length and characters
-        def validate_sequences(self):
+        def pad_and_validate(self) -> List[str]:
+            """Pad sequences shorter than 4992 bp with 'N' and validate characters/length."""
+            processed = []
             for seq in self.sequences:
-                if len(seq) != 4992:
-                    raise ValueError(f"Sequence length must be 4992, got {len(seq)}")
-                if not set(seq.upper()).issubset({"A", "C", "G", "T"}):
+                import re
+                seq_upper = re.sub(r"\s+", "", seq.upper())
+
+                # Pad symmetrically with 'N's if sequence is too short
+                if len(seq_upper) < 4992:
+                    delta = 4992 - len(seq_upper)
+                    left_pad = delta // 2
+                    right_pad = delta - left_pad  # handles odd delta
+                    seq_upper = ("N" * left_pad) + seq_upper + ("N" * right_pad)
+                elif len(seq_upper) > 4992:
+                    raise ValueError(
+                        f"Sequence length must be ≤ 4992, got {len(seq_upper)}"
+                    )
+
+                # Validate allowed characters (A, C, G, T, N)
+                if not set(seq_upper).issubset({"A", "C", "G", "T", "N"}):
                     raise ValueError(f"Invalid characters in sequence: {seq}")
+
+                processed.append(seq_upper)
+
+            return processed
 
     @app.post("/generate")
     async def generate(req: GenerateRequest):
@@ -83,8 +101,7 @@ def fastapi_app():
         print(f"Generating response to request {req_id}")
 
         # Validation & preprocessing
-        req.validate_sequences()
-        seqs_upper = [s.upper() for s in req.sequences]
+        seqs_upper = req.pad_and_validate()
 
         # One-hot encode
         sequences_tensor = torch.stack([
@@ -100,6 +117,12 @@ def fastapi_app():
             f"request {req_id} completed in {round((time.monotonic_ns() - start) / 1e9, 2)} seconds"
         )
 
-        return [preds[i].tolist() for i in range(preds.shape[0])]
+        # Map original (unpadded) sequences to their predictions
+        predictions_dict = {
+            seqs_upper[i]: preds[i].tolist()
+            for i in range(len(seqs_upper))
+        }
+
+        return predictions_dict
 
     return app
