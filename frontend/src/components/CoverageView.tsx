@@ -9,6 +9,15 @@ import {
   Brush,
 } from "recharts";
 
+import trackAnnotations from "../../../backend/track_annotation.json";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+
 interface CoverageViewProps {
   sequence: string; // padded 4992 bp sequence
   coverage: number[][]; // [tracks][bins] shape (162 x 3000)
@@ -19,6 +28,11 @@ const CoverageView: React.FC<CoverageViewProps> = ({ sequence, coverage }) => {
   const half = Math.floor(numTracks / 2);
   const fiveToThree = coverage.slice(0, half);
   const threeToFive = coverage.slice(half, half * 2);
+
+  // Track names from annotation
+  const trackNamesPlus: string[] = (trackAnnotations as any)["+"]; // length >= half
+
+  const [selectedIdx, setSelectedIdx] = React.useState(0);
 
   // Central 3000-bp window
   const crop = Math.floor((sequence.length - 3000) / 2);
@@ -35,11 +49,31 @@ const CoverageView: React.FC<CoverageViewProps> = ({ sequence, coverage }) => {
 
   return (
     <div className="space-y-6 w-full">
+      {/* Track selector */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm">Track:</span>
+        <Select
+          value={selectedIdx.toString()}
+          onValueChange={(val) => setSelectedIdx(parseInt(val, 10))}
+        >
+          <SelectTrigger className="w-[250px]">
+            <SelectValue placeholder="Select track" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72 overflow-y-auto">
+            {trackNamesPlus.slice(0, half).map((name, idx) => (
+              <SelectItem key={idx} value={idx.toString()}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* Coverage plots */}
       <div className="space-y-4">
-        {Array.from({ length: 1 }).map((_, idx) => {
+        {(() => {
+          const idx = selectedIdx;
           const chartData = asPairChartData(fiveToThree[idx], threeToFive[idx]);
-          console.log(chartData);
           return (
             <ResponsiveContainer
               key={idx}
@@ -99,7 +133,7 @@ const CoverageView: React.FC<CoverageViewProps> = ({ sequence, coverage }) => {
               </LineChart>
             </ResponsiveContainer>
           );
-        })}
+        })()}
       </div>
     </div>
   );
