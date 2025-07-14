@@ -73,23 +73,32 @@ function App() {
         circular: false,
         sequence: seq,
         features: [{ id: "troelf", name: "Promoter", start: 20, end: 30 }],
-        chromatogramData: coverageToChrom(seq),
+        chromatogramData: [],
       },
     });
 
-    const linearOnly = [
+    const panels = [
       [
         { id: "rail", name: "Linear Map", active: false },
         {
-          id: "sequence",
-          name: "Synthetic Defined -URA (Illumina)",
+          id: "sequence_0",
+          type: "sequence",
+          name: "Yeast Extract + Peptone + Adenine + Dextrose (Nanopore)",
           active: true,
+          chromatogramIndex: 0,
+        },
+        {
+          id: "sequence_1",
+          type: "sequence",
+          name: "Synthetic Defined -URA (Illumina)",
+          active: false,
+          chromatogramIndex: 1,
         },
       ],
     ];
 
     store.dispatch(
-      actions.panelsShownUpdate(linearOnly, {
+      actions.panelsShownUpdate(panels, {
         editorName: "DemoEditor",
       })
     );
@@ -119,18 +128,23 @@ function App() {
           fetchPredictedCoverage(sequence).then((result) => {
             if (result) {
               const { paddedSeq, coverage } = result;
-              const aTraceCoverage = coverage[11];
-              const tTraceCoverage = coverage[92];
-              const chromatogramData = coverageToChrom(
+
+              const chromatogramData1 = coverageToChrom(
                 paddedSeq,
-                aTraceCoverage,
-                tTraceCoverage
+                coverage[11],
+                coverage[92]
               );
+              const chromatogramData2 = coverageToChrom(
+                paddedSeq,
+                coverage[0],
+                coverage[81]
+              );
+
               updateEditor(store, "DemoEditor", {
                 sequenceData: {
                   ...editorState.sequenceData,
                   sequence: paddedSeq,
-                  chromatogramData,
+                  chromatogramData: [chromatogramData1, chromatogramData2],
                 },
               });
               setPredictionSuccessful(true);
