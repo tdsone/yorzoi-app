@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Editor, updateEditor, actions } from "@teselagen/ove";
+import { Spinner } from "@blueprintjs/core";
 import store from "./store";
 
 import "./App.css";
@@ -62,6 +63,7 @@ const fetchPredictedCoverage = async (sequence) => {
 function App() {
   const previousSequenceRef = useRef();
   const [isLoading, setIsLoading] = useState(false);
+  const [predictionSuccessful, setPredictionSuccessful] = useState(false);
 
   useEffect(() => {
     const seq = "Replace_me_or_upload_your_own_sequence";
@@ -73,7 +75,6 @@ function App() {
         features: [{ id: "troelf", name: "Promoter", start: 20, end: 30 }],
         chromatogramData: coverageToChrom(seq),
       },
-      predictionStatus: "idle",
     });
 
     const linearOnly = [
@@ -111,10 +112,10 @@ function App() {
 
         if (/^[acgtn]+$/i.test(sequence)) {
           setIsLoading(true);
+          setPredictionSuccessful(false);
           store.dispatch(
             actions.updateReadOnlyMode(true, { editorName: "DemoEditor" })
           );
-          updateEditor(store, "DemoEditor", { predictionStatus: "loading" });
           fetchPredictedCoverage(sequence).then((result) => {
             if (result) {
               const { paddedSeq, coverage } = result;
@@ -131,18 +132,15 @@ function App() {
                   sequence: paddedSeq,
                   chromatogramData,
                 },
-                predictionStatus: "success",
               });
+              setPredictionSuccessful(true);
             } else {
-              updateEditor(store, "DemoEditor", { predictionStatus: "error" });
+              setPredictionSuccessful(false);
             }
             setIsLoading(false);
             store.dispatch(
               actions.updateReadOnlyMode(false, { editorName: "DemoEditor" })
             );
-            setTimeout(() => {
-              updateEditor(store, "DemoEditor", { predictionStatus: "idle" });
-            }, 5000);
           });
         }
       }
@@ -160,6 +158,41 @@ function App() {
     isFullscreen: true,
     showMenuBar: true,
     showReadOnly: true,
+    ToolBarProps: {
+      toolList: [
+        "saveTool",
+        //you can override a tool like so:
+        "downloadTool",
+        "importTool",
+        "undoTool",
+        "redoTool",
+        "cutsiteTool",
+        "featureTool",
+        // "alignmentTool",
+        {
+          name: "alignmentTool",
+          Dropdown: () => {
+            return "Hey!";
+          },
+        },
+        // "oligoTool",
+        "orfTool",
+        // "viewTool",
+        "editTool",
+        "findTool",
+        "visibilityTool",
+        {
+          name: "predictTool",
+          Icon: isLoading ? (
+            <Spinner size={20} />
+          ) : predictionSuccessful ? (
+            <p>Predicted Coverage!</p>
+          ) : (
+            <p>Predicted coverage</p>
+          ),
+        },
+      ],
+    },
   };
 
   return (
