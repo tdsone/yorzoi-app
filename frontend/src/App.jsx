@@ -73,6 +73,7 @@ function App() {
         features: [{ id: "troelf", name: "Promoter", start: 20, end: 30 }],
         chromatogramData: coverageToChrom(seq),
       },
+      predictionStatus: "idle",
     });
 
     const linearOnly = [
@@ -110,6 +111,10 @@ function App() {
 
         if (/^[acgtn]+$/i.test(sequence)) {
           setIsLoading(true);
+          store.dispatch(
+            actions.updateReadOnlyMode(true, { editorName: "DemoEditor" })
+          );
+          updateEditor(store, "DemoEditor", { predictionStatus: "loading" });
           fetchPredictedCoverage(sequence).then((result) => {
             if (result) {
               const { paddedSeq, coverage } = result;
@@ -126,9 +131,18 @@ function App() {
                   sequence: paddedSeq,
                   chromatogramData,
                 },
+                predictionStatus: "success",
               });
+            } else {
+              updateEditor(store, "DemoEditor", { predictionStatus: "error" });
             }
             setIsLoading(false);
+            store.dispatch(
+              actions.updateReadOnlyMode(false, { editorName: "DemoEditor" })
+            );
+            setTimeout(() => {
+              updateEditor(store, "DemoEditor", { predictionStatus: "idle" });
+            }, 5000);
           });
         }
       }
@@ -150,22 +164,6 @@ function App() {
 
   return (
     <div>
-      {isLoading && (
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            zIndex: 100,
-            background: "rgba(255, 255, 255, 0.8)",
-            padding: "20px",
-            borderRadius: "10px",
-          }}
-        >
-          Loading...
-        </div>
-      )}
       <Editor {...editorProps} />
     </div>
   );
