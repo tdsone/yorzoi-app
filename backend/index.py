@@ -67,30 +67,33 @@ def fastapi_app():
     class GenerateRequest(BaseModel):
         sequences: List[str]
 
-        def pad_and_validate(self) -> List[str]:
+        def pad_and_validate(self) -> List[tuple[str, str, int]]:
             """Pad sequences shorter than 4992 bp with 'N' and validate characters/length."""
             processed = []
             for seq in self.sequences:
                 import re
-                seq_upper = re.sub(r"\s+", "", seq.upper())
+                original_seq = re.sub(r"\s+", "", seq.upper())
+                original_len = len(original_seq)
 
+                left_pad = 0
                 # Pad symmetrically with 'N's if sequence is too short
-                if len(seq_upper) < 4992:
-                    delta = 4992 - len(seq_upper)
+                if original_len < 4992:
+                    delta = 4992 - original_len
                     left_pad = delta // 2
                     right_pad = delta - left_pad  # handles odd delta
-                    seq_upper = ("N" * left_pad) + seq_upper + ("N" * right_pad)
-                elif len(seq_upper) > 4992:
+                    padded_seq = ("N" * left_pad) + original_seq + ("N" * right_pad)
+                elif original_len > 4992:
                     raise ValueError(
-                        f"Sequence length must be ≤ 4992, got {len(seq_upper)}"
+                        f"Sequence length must be ≤ 4992, got {original_len}"
                     )
+                else: # original_len == 4992
+                    padded_seq = original_seq
 
                 # Validate allowed characters (A, C, G, T, N)
-                if not set(seq_upper).issubset({"A", "C", "G", "T", "N"}):
+                if not set(padded_seq).issubset({"A", "C", "G", "T", "N"}):
                     raise ValueError(f"Invalid characters in sequence: {seq}")
 
-                processed.append(seq_upper)
-
+                processed.append((padded_seq, original_seq, left_pad))
             return processed
 
     @app.post("/generate")
@@ -101,12 +104,13 @@ def fastapi_app():
         print(f"Generating response to request {req_id}")
 
         # Validation & preprocessing
-        seqs_upper = req.pad_and_validate()
+        processed_seqs = req.pad_and_validate()
+        padded_seqs = [s[0] for s in processed_seqs]
 
         # One-hot encode
         sequences_tensor = torch.stack([
             torch.tensor(GenomicDataset.one_hot_encode(seq), dtype=torch.float32)
-            for seq in seqs_upper
+            for seq in padded_seqs
         ]).to("cuda:0")
 
         with torch.autocast(device_type="cuda"):
@@ -118,10 +122,23 @@ def fastapi_app():
         )
 
         # Map original (unpadded) sequences to their predictions
-        predictions_dict = {
-            seqs_upper[i]: preds[i].tolist()
-            for i in range(len(seqs_upper))
-        }
+        predictions_dict = {}
+        for i, (padded_seq, original_seq, left_pad) in enumerate(processed_seqs):
+            original_len = len(original_seq)
+            pred_3000 = preds[i]
+            num_tracks = pred_3000.shape[0]
+
+            # Create a zero tensor for the full 4992bp range
+            full_pred_4992 = torch.zeros(
+                num_tracks, 4992, device=pred_3000.device, dtype=pred_3000.dtype
+            )
+            # Place the 3000bp prediction in the center
+            full_pred_4992[:, 996:3996] = pred_3000
+            
+            # Crop to the original sequence length from the correct start position
+            cropped_pred = full_pred_4992[:, left_pad : left_pad + original_len]
+
+            predictions_dict[original_seq] = cropped_pred.tolist()
 
         return predictions_dict
 
