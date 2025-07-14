@@ -23,7 +23,7 @@ index 9a12769..01dfbfc 100644
      cytosine: "blue",
      other: "#ac68cc"
 diff --git a/node_modules/@teselagen/ove/src/ToolBar/index.js b/node_modules/@teselagen/ove/src/ToolBar/index.js
-index 1eec0a6..232a86c 100644
+index 1eec0a6..5d8d45e 100644
 --- a/node_modules/@teselagen/ove/src/ToolBar/index.js
 +++ b/node_modules/@teselagen/ove/src/ToolBar/index.js
 @@ -8,6 +8,7 @@ import { Button, Tooltip } from "@blueprintjs/core";
@@ -42,7 +42,34 @@ index 1eec0a6..232a86c 100644
    cutsiteTool,
    alignmentTool,
    featureTool,
-@@ -217,6 +219,7 @@ export const defaultToolList = [
+@@ -40,7 +42,8 @@ const allTools = {
+   saveTool,
+   visibilityTool,
+   undoTool,
+-  redoTool
++  redoTool,
++  predictTool
+ };
+ 
+ export function ToolBar(props) {
+@@ -86,6 +89,7 @@ export function ToolBar(props) {
+       const Tool = toolOverride
+         ? allTools[toolOverride.name]
+         : allTools[toolName];
++
+       if (!Tool) {
+         console.error(
+           "You're trying to load a tool that doesn't appear to exist: " +
+@@ -137,6 +141,8 @@ export function ToolBar(props) {
+     items = modifyTools(items);
+   }
+ 
++  console.log("items", items);
++
+   return (
+     <div className="veToolbar-outer" style={{ display: "flex" }}>
+       {contentLeft}
+@@ -217,6 +223,7 @@ export const defaultToolList = [
    "saveTool",
    "downloadTool",
    "importTool",
@@ -52,12 +79,12 @@ index 1eec0a6..232a86c 100644
    "cutsiteTool",
 diff --git a/node_modules/@teselagen/ove/src/ToolBar/predictTool.js b/node_modules/@teselagen/ove/src/ToolBar/predictTool.js
 new file mode 100644
-index 0000000..68001a2
+index 0000000..c0fdf30
 --- /dev/null
 +++ b/node_modules/@teselagen/ove/src/ToolBar/predictTool.js
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,19 @@
 +import React from "react";
-+import { Button } from "@blueprintjs/core";
++import { Button, Icon } from "@blueprintjs/core";
 +import { connectToEditor } from "../withEditorProps";
 +import ToolbarItem from "./ToolbarItem";
 +
@@ -67,17 +94,11 @@ index 0000000..68001a2
 +  }) {
 +    return (
 +      <ToolbarItem
-+        {...toolbarItemProps}
-+        tooltip="Predict RNA-seq coverage"
-+      >
-+        <Button
-+          onClick={() => {
-+            window.alert("Predicting RNA-seq coverage...");
-+          }}
-+        >
-+          Predict RNA-seq coverage
-+        </Button>
-+      </ToolbarItem>
++        {...{
++          Icon: <p>Predicted coverage</p>,
++          ...toolbarItemProps,
++        }}
++      />
 +    );
 +  }
 +); 
