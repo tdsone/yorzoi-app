@@ -83,7 +83,7 @@ function App() {
         {
           id: "sequence_0",
           type: "sequence",
-          name: "Yeast Extract + Peptone + Adenine + Dextrose (Nanopore)",
+          name: "YPD (Nanopore)",
           active: true,
           chromatogramIndex: 0,
         },
@@ -93,6 +93,13 @@ function App() {
           name: "Synthetic Defined -URA (Illumina)",
           active: false,
           chromatogramIndex: 1,
+        },
+        {
+          id: "sequence_2",
+          type: "sequence",
+          name: "BY4741 UBR1 -469A>T (Illumina) SRR21628668",
+          active: false,
+          chromatogramIndex: 2,
         },
       ],
     ];
@@ -139,12 +146,21 @@ function App() {
                 coverage[0],
                 coverage[81]
               );
+              const chromatogramData3 = coverageToChrom(
+                paddedSeq,
+                coverage[10],
+                coverage[91]
+              );
 
               updateEditor(store, "DemoEditor", {
                 sequenceData: {
                   ...editorState.sequenceData,
                   sequence: paddedSeq,
-                  chromatogramData: [chromatogramData1, chromatogramData2],
+                  chromatogramData: [
+                    chromatogramData1,
+                    chromatogramData2,
+                    chromatogramData3,
+                  ],
                 },
               });
               setPredictionSuccessful(true);
