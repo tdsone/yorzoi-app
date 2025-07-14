@@ -1,0 +1,84 @@
+diff --git a/node_modules/@teselagen/ove/src/RowItem/Chromatograms/Chromatogram.js b/node_modules/@teselagen/ove/src/RowItem/Chromatograms/Chromatogram.js
+index 9a12769..01dfbfc 100644
+--- a/node_modules/@teselagen/ove/src/RowItem/Chromatograms/Chromatogram.js
++++ b/node_modules/@teselagen/ove/src/RowItem/Chromatograms/Chromatogram.js
+@@ -10,7 +10,7 @@ import classNames from "classnames";
+ export default function Chromatogram(props) {
+   const { isRowView, chromatogramData, row, getGaps, charWidth } = props;
+   const [showChromQualScores] = useShowChromQualScores();
+-  let [scalePct, setScalePct] = useState(0.05);
++  let [scalePct, setScalePct] = useState(1);
+   const [hasDrawnOnce, setHasDrawnOnce] = useState(false);
+   if (props.scalePct) scalePct = props.scalePct;
+   if (props.setScalePct) setScalePct = props.setScalePct;
+@@ -204,8 +204,8 @@ function drawTrace({
+   scalePct
+ }) {
+   const colors = {
+-    adenine: "green",
+-    thymine: "red",
++    adenine: "#fc03df",
++    thymine: "#fcba03",
+     guanine: "black",
+     cytosine: "blue",
+     other: "#ac68cc"
+diff --git a/node_modules/@teselagen/ove/src/ToolBar/index.js b/node_modules/@teselagen/ove/src/ToolBar/index.js
+index 1eec0a6..232a86c 100644
+--- a/node_modules/@teselagen/ove/src/ToolBar/index.js
++++ b/node_modules/@teselagen/ove/src/ToolBar/index.js
+@@ -8,6 +8,7 @@ import { Button, Tooltip } from "@blueprintjs/core";
+ 
+ import downloadTool from "./downloadTool";
+ import importTool from "./importTool";
++import predictTool from "./predictTool";
+ import cutsiteTool from "./cutsiteTool";
+ import featureTool from "./featureTool";
+ import partTool from "./partTool";
+@@ -27,6 +28,7 @@ import { useMemo } from "react";
+ const allTools = {
+   downloadTool,
+   importTool,
++  predictTool,
+   cutsiteTool,
+   alignmentTool,
+   featureTool,
+@@ -217,6 +219,7 @@ export const defaultToolList = [
+   "saveTool",
+   "downloadTool",
+   "importTool",
++  "predictTool",
+   "undoTool",
+   "redoTool",
+   "cutsiteTool",
+diff --git a/node_modules/@teselagen/ove/src/ToolBar/predictTool.js b/node_modules/@teselagen/ove/src/ToolBar/predictTool.js
+new file mode 100644
+index 0000000..68001a2
+--- /dev/null
++++ b/node_modules/@teselagen/ove/src/ToolBar/predictTool.js
+@@ -0,0 +1,25 @@
++import React from "react";
++import { Button } from "@blueprintjs/core";
++import { connectToEditor } from "../withEditorProps";
++import ToolbarItem from "./ToolbarItem";
++
++export default connectToEditor() (
++  function PredictTool({
++    toolbarItemProps,
++  }) {
++    return (
++      <ToolbarItem
++        {...toolbarItemProps}
++        tooltip="Predict RNA-seq coverage"
++      >
++        <Button
++          onClick={() => {
++            window.alert("Predicting RNA-seq coverage...");
++          }}
++        >
++          Predict RNA-seq coverage
++        </Button>
++      </ToolbarItem>
++    );
++  }
++); 
+\ No newline at end of file
