@@ -1,18 +1,112 @@
 diff --git a/node_modules/@teselagen/ove/src/RowItem/Chromatograms/Chromatogram.js b/node_modules/@teselagen/ove/src/RowItem/Chromatograms/Chromatogram.js
-index 9a12769..01dfbfc 100644
+index 9a12769..ee0fb6d 100644
 --- a/node_modules/@teselagen/ove/src/RowItem/Chromatograms/Chromatogram.js
 +++ b/node_modules/@teselagen/ove/src/RowItem/Chromatograms/Chromatogram.js
-@@ -10,7 +10,7 @@ import classNames from "classnames";
+@@ -1,5 +1,5 @@
+ import { showContextMenu } from "@teselagen/ui";
+-import React, { useEffect, useRef, useState } from "react";
++import React, { useEffect, useMemo, useRef, useState } from "react";
+ import { Button } from "@blueprintjs/core";
+ import {
+   chromatogramMenu,
+@@ -10,12 +10,27 @@ import classNames from "classnames";
  export default function Chromatogram(props) {
    const { isRowView, chromatogramData, row, getGaps, charWidth } = props;
    const [showChromQualScores] = useShowChromQualScores();
 -  let [scalePct, setScalePct] = useState(0.05);
-+  let [scalePct, setScalePct] = useState(1);
    const [hasDrawnOnce, setHasDrawnOnce] = useState(false);
-   if (props.scalePct) scalePct = props.scalePct;
-   if (props.setScalePct) setScalePct = props.setScalePct;
-@@ -204,8 +204,8 @@ function drawTrace({
-   scalePct
+-  if (props.scalePct) scalePct = props.scalePct;
+-  if (props.setScalePct) setScalePct = props.setScalePct;
+   const canvasRef = useRef();
+   const gapsBeforeRow = getGaps(row.start).gapsBefore;
++  const maxTraceValue = useMemo(() => {
++    let max = 0;
++    if (chromatogramData && chromatogramData.baseTraces) {
++      for (let i = 0; i < chromatogramData.baseTraces.length; i++) {
++        const base = chromatogramData.baseTraces[i];
++        if (base) {
++          max = Math.max(
++            max,
++            ...(base.aTrace || []),
++            ...(base.tTrace || []),
++            ...(base.gTrace || []),
++            ...(base.cTrace || [])
++          );
++        }
++      }
++    }
++    return max;
++  }, [chromatogramData]);
+   useEffect(() => {
+     if (
+       !chromatogramData ||
+@@ -34,7 +49,7 @@ export default function Chromatogram(props) {
+       endBp: row.end,
+       getGaps,
+       gapsBeforeRow,
+-      scalePct: scalePct
++      maxTraceValue,
+     });
+     painter.paintCanvas();
+     setHasDrawnOnce(true);
+@@ -47,9 +62,9 @@ export default function Chromatogram(props) {
+     row.end,
+     gapsBeforeRow,
+     isRowView,
+-    scalePct,
+     getGaps,
+-    canvasRef
++    canvasRef,
++    maxTraceValue,
+   ]);
+   const marginLeft = gapsBeforeRow * charWidth;
+ 
+@@ -65,38 +80,6 @@ export default function Chromatogram(props) {
+         showContextMenu([chromatogramMenu], undefined, e);
+       }}
+     >
+-      <Button
+-        minimal
+-        data-tip="Scale Chromatogram Up"
+-        className="scaleChromatogramButtonUp"
+-        icon="caret-up"
+-        onClick={e => {
+-          e.stopPropagation();
+-          setScalePct(scalePct + 0.01);
+-        }}
+-        style={{
+-          zIndex: 10,
+-          position: "sticky",
+-          left: 145
+-        }}
+-      />
+-      <Button
+-        minimal
+-        data-tip="Scale Chromatogram Down"
+-        className="scaleChromatogramButtonDown"
+-        icon="caret-down"
+-        onClick={e => {
+-          e.stopPropagation();
+-          setScalePct(scalePct - 0.01);
+-        }}
+-        style={{
+-          zIndex: 10,
+-          position: "sticky",
+-          left: 175
+-        }}
+-      />
+-      <br />
+-
+       <div
+         className={classNames({
+           "chromatogram-trace": true,
+@@ -200,12 +183,12 @@ function drawTrace({
+   getGaps,
+   gapsBeforeRow,
+   showChromQualScores,
++  maxTraceValue,
+   // isRowView,
+-  scalePct
  }) {
    const colors = {
 -    adenine: "green",
@@ -22,6 +116,52 @@ index 9a12769..01dfbfc 100644
      guanine: "black",
      cytosine: "blue",
      other: "#ac68cc"
+@@ -223,6 +206,8 @@ function drawTrace({
+ 
+   const scaledHeight = maxHeight - bottomBuffer;
+ 
++  const scalePct = maxTraceValue > 0 ? scaledHeight / maxTraceValue : 1;
++
+   this.drawPeaks = function (traceType, lineColor) {
+     ctx.beginPath();
+     //loop through base positions [ 43, 53, 70, 77, ...]
+@@ -278,12 +263,36 @@ function drawTrace({
+     ctx.stroke();
+   };
+ 
++  this.drawLegend = function () {
++    const legendX = 10;
++    const legendY = 10;
++    const lineHeight = 15;
++    const lineWidth = 20;
++    const lineThickness = 2;
++
++    ctx.font = "12px Arial";
++    ctx.textBaseline = "middle";
++
++    // 5' -> 3'
++    ctx.fillStyle = colors.adenine; // #fc03df
++    ctx.fillRect(legendX, legendY, lineWidth, lineThickness);
++    ctx.fillStyle = "black";
++    ctx.fillText("5' -> 3'", legendX + lineWidth + 5, legendY + 1);
++
++    // 3' -> 5'
++    ctx.fillStyle = colors.thymine; // #fcba03
++    ctx.fillRect(legendX, legendY + lineHeight, lineWidth, lineThickness);
++    ctx.fillStyle = "black";
++    ctx.fillText("3' -> 5'", legendX + lineWidth + 5, legendY + lineHeight + 1);
++  };
++
+   this.paintCanvas = function () {
+     this.drawQualityScoreHistogram();
+     this.drawPeaks("aTrace", colors.adenine);
+     this.drawPeaks("tTrace", colors.thymine);
+     this.drawPeaks("gTrace", colors.guanine);
+     this.drawPeaks("cTrace", colors.cytosine);
++    this.drawLegend();
+     ctx.closePath();
+   };
+ }
 diff --git a/node_modules/@teselagen/ove/src/ToolBar/index.js b/node_modules/@teselagen/ove/src/ToolBar/index.js
 index 1eec0a6..5d8d45e 100644
 --- a/node_modules/@teselagen/ove/src/ToolBar/index.js
