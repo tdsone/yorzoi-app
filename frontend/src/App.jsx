@@ -66,7 +66,7 @@ function App() {
   const [predictionSuccessful, setPredictionSuccessful] = useState(false);
 
   useEffect(() => {
-    const seq = "Replace_me_or_upload_your_own_sequence";
+    const seq = "ACGT: Replace me or upload your own DNA sequence";
 
     updateEditor(store, "DemoEditor", {
       sequenceData: {
@@ -184,7 +184,9 @@ function App() {
         {
           name: "predictTool",
           Icon: isLoading ? (
-            <Spinner size={20} />
+            <>
+              <Spinner size={20} /> Predicting coverage...
+            </>
           ) : predictionSuccessful ? (
             <p>Predicted Coverage!</p>
           ) : (
