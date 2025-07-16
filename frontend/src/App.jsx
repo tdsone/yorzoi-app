@@ -17,8 +17,8 @@ function coverageToChrom(sequence, aTraceCoverage = [], tTraceCoverage = []) {
     baseTraces: Array.from({ length: len }, (_, i) => ({
       aTrace: makeFlatTrace(aCov[i]), // fwd strand
       tTrace: makeFlatTrace(tCov[i]), // rev strand
-      gTrace: makeFlatTrace(0), // house keeping gene 1: ACT1
-      cTrace: makeFlatTrace(0), // house keeping gene 2: TUB1
+      gTrace: makeFlatTrace(10), // house keeping gene 1: ACT1
+      cTrace: makeFlatTrace(50), // house keeping gene 2: TUB1
     })),
     // qualNums: []   // optional
   };
