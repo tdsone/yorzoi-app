@@ -11,7 +11,8 @@ image = (
     .pip_install(
         "yorzoi==0.0.3",
         "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiTRUE-cp39-cp39-linux_x86_64.whl",
-        "fastapi[standard]"
+        "fastapi[standard]", 
+        "orjson"
     )
 )
 
@@ -31,12 +32,14 @@ def fastapi_app():
     """ASGI FastAPI application with CORS enabled."""
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.middleware.gzip import GZipMiddleware
+    from fastapi.responses import ORJSONResponse
     from pydantic import BaseModel, conlist
     from typing import List
     import torch
     import time
     from uuid import uuid4
-    import random
+
     from yorzoi.dataset import GenomicDataset
     from yorzoi.model.borzoi import Borzoi
     from yorzoi.utils import untransform_then_unbin
@@ -46,7 +49,9 @@ def fastapi_app():
     model.to("cuda:0")
     model.eval()
 
-    app = FastAPI(title="Yorzoi API with CORS")
+    app = FastAPI(title="Yorzoi API", default_response_class=ORJSONResponse)
+
+   
 
     # --- CORS CONFIGURATION ---
     allowed_origins = [
@@ -63,6 +68,8 @@ def fastapi_app():
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
 
     class GenerateRequest(BaseModel):
         sequences: List[str]
