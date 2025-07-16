@@ -20,7 +20,6 @@ function coverageToChrom(sequence, aTraceCoverage = [], tTraceCoverage = []) {
       gTrace: makeFlatTrace(10), // house keeping gene 1: ACT1
       cTrace: makeFlatTrace(50), // house keeping gene 2: TUB1
     })),
-    // qualNums: []   // optional
   };
 }
 
@@ -60,48 +59,112 @@ const fetchPredictedCoverage = async (sequence) => {
   }
 };
 
+const track2idx = {
+  "YPD (Nanopore)": 11,
+  "Synthetic Defined -URA (Illumina)": 0,
+  "BY4741 UBR1 -469A>T (Illumina) SRR21628668": 10,
+};
+
+const initialSeq = "ACGT: Replace me or upload your own DNA sequence";
+
 function App() {
-  const previousSequenceRef = useRef();
+  const previousSequenceRef = useRef(initialSeq);
   const [isLoading, setIsLoading] = useState(false);
   const [predictionSuccessful, setPredictionSuccessful] = useState(false);
 
-  useEffect(() => {
-    const seq = "ACGT: Replace me or upload your own DNA sequence";
+  const handleSequenceChange = () => {
+    const state = store.getState();
+    const editorState = state.VectorEditor?.DemoEditor;
+    if (!editorState) return;
 
+    console.log("previousSequenceRef.current", previousSequenceRef.current);
+
+    const { sequence } = editorState.sequenceData;
+    const previousSequence = previousSequenceRef.current;
+
+    if (sequence !== previousSequence) {
+      console.log(
+        "Sequence changed!",
+        "Previous sequence length",
+        previousSequence?.length,
+        "New sequence length",
+        sequence.length
+      );
+
+      previousSequenceRef.current = sequence;
+
+      updateEditor(store, "DemoEditor", {
+        sequenceData: {
+          ...editorState.sequenceData,
+          chromatogramData: [],
+        },
+      });
+      setPredictionSuccessful(false);
+
+      if (/^[acgtn]+$/i.test(sequence)) {
+        setIsLoading(true);
+        store.dispatch(
+          actions.updateReadOnlyMode(true, { editorName: "DemoEditor" })
+        );
+
+        fetchPredictedCoverage(sequence).then((result) => {
+          if (result) {
+            console.log("Fetched result", result);
+
+            const { paddedSeq, coverage } = result;
+
+            const chromatogramData = Object.keys(track2idx).map((track) => {
+              const trackIdx = track2idx[track];
+              return coverageToChrom(
+                paddedSeq,
+                coverage[trackIdx],
+                coverage[trackIdx + 81]
+              );
+            });
+
+            console.log(chromatogramData);
+
+            updateEditor(store, "DemoEditor", {
+              sequenceData: {
+                ...editorState.sequenceData,
+                chromatogramData,
+              },
+            });
+            setPredictionSuccessful(true);
+          } else {
+            setPredictionSuccessful(false);
+          }
+          setIsLoading(false);
+          store.dispatch(
+            actions.updateReadOnlyMode(false, { editorName: "DemoEditor" })
+          );
+        });
+      }
+    } else {
+      console.log("handleSequenceChange: sequence is the same, doing nothing");
+    }
+  };
+
+  useEffect(() => {
     updateEditor(store, "DemoEditor", {
       sequenceData: {
         circular: false,
-        sequence: seq,
+        sequence: initialSeq,
         features: [{ id: "troelf", name: "Promoter", start: 20, end: 30 }],
         chromatogramData: [],
       },
     });
 
+    const trackPanels = Object.keys(track2idx).map((track, idx) => ({
+      id: `sequence_${idx}`,
+      type: "sequence",
+      name: track,
+      active: idx === 0,
+      chromatogramIndex: idx,
+    }));
+
     const panels = [
-      [
-        { id: "rail", name: "Linear Map", active: false },
-        {
-          id: "sequence_0",
-          type: "sequence",
-          name: "YPD (Nanopore)",
-          active: true,
-          chromatogramIndex: 0,
-        },
-        {
-          id: "sequence_1",
-          type: "sequence",
-          name: "Synthetic Defined -URA (Illumina)",
-          active: false,
-          chromatogramIndex: 1,
-        },
-        {
-          id: "sequence_2",
-          type: "sequence",
-          name: "BY4741 UBR1 -469A>T (Illumina) SRR21628668",
-          active: false,
-          chromatogramIndex: 2,
-        },
-      ],
+      [{ id: "rail", name: "Linear Map", active: false }, ...trackPanels],
     ];
 
     store.dispatch(
@@ -113,68 +176,6 @@ function App() {
     store.dispatch(
       actions.updateReadOnlyMode(false, { editorName: "DemoEditor" })
     );
-
-    const handleSequenceChange = () => {
-      const state = store.getState();
-      const editorState = state.VectorEditor?.DemoEditor;
-      if (!editorState) return;
-
-      const { sequence } = editorState.sequenceData;
-      const previousSequence = previousSequenceRef.current;
-
-      if (sequence !== previousSequence) {
-        console.log("Sequence changed:", sequence);
-        previousSequenceRef.current = sequence;
-
-        if (/^[acgtn]+$/i.test(sequence)) {
-          setIsLoading(true);
-          setPredictionSuccessful(false);
-          store.dispatch(
-            actions.updateReadOnlyMode(true, { editorName: "DemoEditor" })
-          );
-          fetchPredictedCoverage(sequence).then((result) => {
-            if (result) {
-              const { paddedSeq, coverage } = result;
-
-              const chromatogramData1 = coverageToChrom(
-                paddedSeq,
-                coverage[11],
-                coverage[92]
-              );
-              const chromatogramData2 = coverageToChrom(
-                paddedSeq,
-                coverage[0],
-                coverage[81]
-              );
-              const chromatogramData3 = coverageToChrom(
-                paddedSeq,
-                coverage[10],
-                coverage[91]
-              );
-
-              updateEditor(store, "DemoEditor", {
-                sequenceData: {
-                  ...editorState.sequenceData,
-                  sequence: paddedSeq,
-                  chromatogramData: [
-                    chromatogramData1,
-                    chromatogramData2,
-                    chromatogramData3,
-                  ],
-                },
-              });
-              setPredictionSuccessful(true);
-            } else {
-              setPredictionSuccessful(false);
-            }
-            setIsLoading(false);
-            store.dispatch(
-              actions.updateReadOnlyMode(false, { editorName: "DemoEditor" })
-            );
-          });
-        }
-      }
-    };
 
     const unsubscribe = store.subscribe(handleSequenceChange);
 
@@ -191,23 +192,13 @@ function App() {
     ToolBarProps: {
       toolList: [
         "saveTool",
-        //you can override a tool like so:
         "downloadTool",
         "importTool",
         "undoTool",
         "redoTool",
         "cutsiteTool",
         "featureTool",
-        // "alignmentTool",
-        {
-          name: "alignmentTool",
-          Dropdown: () => {
-            return "Hey!";
-          },
-        },
-        // "oligoTool",
         "orfTool",
-        // "viewTool",
         "editTool",
         "findTool",
         "visibilityTool",
