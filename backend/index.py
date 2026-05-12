@@ -107,87 +107,107 @@ def fastapi_app():
         print(f"Generating response to request {req_id}")
 
         processed_seqs = req.process_sequences()
-        predictions_dict = {}
+        if not processed_seqs:
+            return {}
 
+        window_size = 4992
+        step_size = 1000
+        prediction_length = 3000
+        prediction_offset = (window_size - prediction_length) // 2  # 996
+
+        # Build one batch from all short sequences (padded to 4992) and all
+        # chunks of all long sequences — they share shape [4, 4992] so they
+        # can go through the model in a single forward pass.
+        batch_items: list = []
+        seq_meta: list = []
         for original_seq, seq_to_process, left_pad, is_long in processed_seqs:
             if not is_long:
-                # Use existing logic for short sequences
-                sequence_tensor = torch.tensor(
-                    GenomicDataset.one_hot_encode(seq_to_process), dtype=torch.float32
-                ).unsqueeze(0).to("cuda:0")
-                
-                with torch.autocast(device_type="cuda"):
-                    preds_squashed = model(sequence_tensor)
-                    preds = untransform_then_unbin(preds_squashed, resolution=10)
-
-                pred_3000 = preds[0]
-                num_tracks = pred_3000.shape[0]
+                start = len(batch_items)
+                batch_items.append(GenomicDataset.one_hot_encode(seq_to_process))
+                seq_meta.append({
+                    "kind": "short",
+                    "original_seq": original_seq,
+                    "left_pad": left_pad,
+                    "batch_start": start,
+                })
+            else:
                 original_len = len(original_seq)
+                chunks = [
+                    original_seq[i : i + window_size]
+                    for i in range(0, original_len - window_size + 1, step_size)
+                ]
+                if (original_len - window_size) % step_size != 0:
+                    chunks.append(original_seq[-window_size:])
+                if not chunks:
+                    chunks.append(original_seq)
+
+                start = len(batch_items)
+                for chunk in chunks:
+                    batch_items.append(GenomicDataset.one_hot_encode(chunk))
+                seq_meta.append({
+                    "kind": "long",
+                    "original_seq": original_seq,
+                    "original_len": original_len,
+                    "batch_start": start,
+                    "num_chunks": len(chunks),
+                })
+
+        batch_tensor = torch.stack([
+            torch.as_tensor(item, dtype=torch.float32) for item in batch_items
+        ]).to("cuda:0")
+
+        with torch.autocast(device_type="cuda"):
+            preds_squashed = model(batch_tensor)
+            preds = untransform_then_unbin(preds_squashed, resolution=10)
+
+        predictions_dict = {}
+        for meta in seq_meta:
+            if meta["kind"] == "short":
+                pred_3000 = preds[meta["batch_start"]]
+                num_tracks = pred_3000.shape[0]
+                original_seq = meta["original_seq"]
+                original_len = len(original_seq)
+                left_pad = meta["left_pad"]
 
                 full_pred_4992 = torch.zeros(
-                    num_tracks, 4992, device=pred_3000.device, dtype=pred_3000.dtype
+                    num_tracks, window_size,
+                    device=pred_3000.device, dtype=pred_3000.dtype,
                 )
-                full_pred_4992[:, 996:3996] = pred_3000
-                
+                full_pred_4992[:, prediction_offset : prediction_offset + prediction_length] = pred_3000
+
                 cropped_pred = full_pred_4992[:, left_pad : left_pad + original_len]
                 predictions_dict[original_seq] = cropped_pred.tolist()
             else:
-                # Implement sliding window for long sequences
-                window_size = 4992
-                step_size = 1000
-                prediction_length = 3000
-                prediction_offset = (window_size - prediction_length) // 2 # 996
-
-                original_len = len(original_seq)
-                
-                # Create chunks
-                chunks = []
-                for i in range(0, original_len - window_size + 1, step_size):
-                    chunks.append(original_seq[i : i + window_size])
-                
-                if (original_len - window_size) % step_size != 0:
-                    chunks.append(original_seq[-window_size:])
-
-                if not chunks:
-                    # This case handles sequences that are shorter than window_size but were flagged as long.
-                    # This shouldn't happen with the current logic but is a safeguard.
-                    chunks.append(original_seq)
-
-                sequences_tensor = torch.stack([
-                    torch.tensor(GenomicDataset.one_hot_encode(chunk), dtype=torch.float32)
-                    for chunk in chunks
-                ]).to("cuda:0")
-
-                with torch.autocast(device_type="cuda"):
-                    preds_squashed = model(sequences_tensor)
-                    preds = untransform_then_unbin(preds_squashed, resolution=10)
-                
-                num_tracks = preds.shape[1]
+                original_seq = meta["original_seq"]
+                original_len = meta["original_len"]
+                num_chunks = meta["num_chunks"]
+                seq_preds = preds[meta["batch_start"] : meta["batch_start"] + num_chunks]
+                num_tracks = seq_preds.shape[1]
 
                 prediction_aggregator = torch.zeros(
-                    num_tracks, original_len, device=preds.device, dtype=preds.dtype
+                    num_tracks, original_len,
+                    device=seq_preds.device, dtype=seq_preds.dtype,
                 )
                 overlap_counter = torch.zeros(
-                    1, original_len, device=preds.device, dtype=preds.dtype
+                    1, original_len,
+                    device=seq_preds.device, dtype=seq_preds.dtype,
                 )
 
-                for i, pred_chunk in enumerate(preds):
-                    is_last_chunk = i == len(chunks) - 1
-                    is_tail_chunk = (original_len - window_size) % step_size != 0
-
+                is_tail_chunk = (original_len - window_size) % step_size != 0
+                for i in range(num_chunks):
+                    is_last_chunk = i == num_chunks - 1
                     if is_last_chunk and is_tail_chunk:
                         start_pos_in_original = original_len - window_size
                     else:
                         start_pos_in_original = i * step_size
-                        
+
                     prediction_start = start_pos_in_original + prediction_offset
                     prediction_end = prediction_start + prediction_length
 
-                    prediction_aggregator[:, prediction_start:prediction_end] += pred_chunk
+                    prediction_aggregator[:, prediction_start:prediction_end] += seq_preds[i]
                     overlap_counter[:, prediction_start:prediction_end] += 1
-                
+
                 overlap_counter[overlap_counter == 0] = 1
-                
                 final_prediction = prediction_aggregator / overlap_counter
                 predictions_dict[original_seq] = final_prediction.tolist()
 
