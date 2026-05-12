@@ -17,7 +17,7 @@ image = (
 
 app = modal.App("yorzoi-app")
 
-MINUTES = 1
+MINUTES = 60
 
 @app.function(
     gpu="A100",
