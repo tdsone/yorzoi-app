@@ -7,11 +7,10 @@ operating_sys = "ubuntu22.04"
 tag = f"{cuda_version}-{flavor}-{operating_sys}"
 
 image = (
-    modal.Image.from_registry(f"nvidia/cuda:{tag}", add_python="3.9")
+    modal.Image.from_registry(f"nvidia/cuda:{tag}", add_python="3.12")
     .pip_install(
-        "yorzoi==0.0.3",
-        "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.7cxx11abiTRUE-cp39-cp39-linux_x86_64.whl",
-        "fastapi[standard]", 
+        "yorzoi==0.2.1",
+        "fastapi[standard]",
         "orjson"
     )
 )
