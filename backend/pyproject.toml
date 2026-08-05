@@ -4,4 +4,30 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "modal>=1.4.2",
+    "fastapi>=0.115",
+    "orjson>=3.10",
+    "numpy>=1.26",
+    "pydantic>=2.9",
 ]
+
+# Local development and testing only. The Modal images install their own pinned
+# dependency sets; nothing here reaches production.
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.27",
+    "h5py>=3.12",
+    "torch>=2.5",
+    "safetensors>=0.8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Explicit, so `import app` does not depend on tests/__init__.py existing.
+pythonpath = ["."]
+markers = [
+    "slow: requires the real model weights (deselect with '-m \"not slow\"')",
+]
+
+[tool.uv]
+package = false
