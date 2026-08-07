@@ -1,0 +1,7 @@
+{
+  "fold": "f0",
+  "source_checkpoint": "checkpoint_f0.h5",
+  "source_sha256": "a34e97ba4fa382e061f519d4d4c737c6ca4ed97744045b5f19e307f6c01d4872",
+  "safetensors_sha256": "685d1b41899d2fe9b2ab2b056d0f4cbc5a5b08f7ef9e028f3b77aaef85e9466e",
+  "n_parameters": 14243775
+}

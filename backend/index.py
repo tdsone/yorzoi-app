@@ -6,18 +6,14 @@ flavor = "devel"  #  includes full CUDA toolkit
 operating_sys = "ubuntu22.04"
 tag = f"{cuda_version}-{flavor}-{operating_sys}"
 
-image = (
-    modal.Image.from_registry(f"nvidia/cuda:{tag}", add_python="3.12")
-    .pip_install(
-        "yorzoi==0.2.1",
-        "fastapi[standard]",
-        "orjson"
-    )
+image = modal.Image.from_registry(f"nvidia/cuda:{tag}", add_python="3.12").pip_install(
+    "yorzoi==0.2.1", "fastapi[standard]", "orjson"
 )
 
 app = modal.App("yorzoi-app")
 
 MINUTES = 60
+
 
 @app.function(
     gpu="A100",
@@ -50,8 +46,6 @@ def fastapi_app():
 
     app = FastAPI(title="Yorzoi API", default_response_class=ORJSONResponse)
 
-   
-
     # --- CORS CONFIGURATION ---
     allowed_origins = [
         "https://yorzoi.eu",
@@ -81,6 +75,7 @@ def fastapi_app():
             processed = []
             for seq in self.sequences:
                 import re
+
                 original_seq = re.sub(r"\s+", "", seq.upper())
                 original_len = len(original_seq)
 
@@ -100,8 +95,14 @@ def fastapi_app():
             return processed
 
     @app.post("/generate")
-    async def generate(req: GenerateRequest):
-        """Predict RNA-seq coverage for the provided DNA sequences."""
+    async def generate(req: GenerateRequest, bench: bool = False):
+        """Predict RNA-seq coverage for the provided DNA sequences.
+
+        When `bench=true`, runs the full forward + reassembly pipeline but
+        returns only timing info instead of the prediction payload — useful
+        for benchmarking without paying the response serialization/transit
+        cost (~7 MB of floats per sequence).
+        """
         start_time = time.monotonic()
         req_id = uuid4()
         print(f"Generating response to request {req_id}")
@@ -124,12 +125,14 @@ def fastapi_app():
             if not is_long:
                 start = len(batch_items)
                 batch_items.append(GenomicDataset.one_hot_encode(seq_to_process))
-                seq_meta.append({
-                    "kind": "short",
-                    "original_seq": original_seq,
-                    "left_pad": left_pad,
-                    "batch_start": start,
-                })
+                seq_meta.append(
+                    {
+                        "kind": "short",
+                        "original_seq": original_seq,
+                        "left_pad": left_pad,
+                        "batch_start": start,
+                    }
+                )
             else:
                 original_len = len(original_seq)
                 chunks = [
@@ -144,17 +147,19 @@ def fastapi_app():
                 start = len(batch_items)
                 for chunk in chunks:
                     batch_items.append(GenomicDataset.one_hot_encode(chunk))
-                seq_meta.append({
-                    "kind": "long",
-                    "original_seq": original_seq,
-                    "original_len": original_len,
-                    "batch_start": start,
-                    "num_chunks": len(chunks),
-                })
+                seq_meta.append(
+                    {
+                        "kind": "long",
+                        "original_seq": original_seq,
+                        "original_len": original_len,
+                        "batch_start": start,
+                        "num_chunks": len(chunks),
+                    }
+                )
 
-        batch_tensor = torch.stack([
-            torch.as_tensor(item, dtype=torch.float32) for item in batch_items
-        ]).to("cuda:0")
+        batch_tensor = torch.stack(
+            [torch.as_tensor(item, dtype=torch.float32) for item in batch_items]
+        ).to("cuda:0")
 
         with torch.autocast(device_type="cuda"):
             preds_squashed = model(batch_tensor)
@@ -170,10 +175,14 @@ def fastapi_app():
                 left_pad = meta["left_pad"]
 
                 full_pred_4992 = torch.zeros(
-                    num_tracks, window_size,
-                    device=pred_3000.device, dtype=pred_3000.dtype,
+                    num_tracks,
+                    window_size,
+                    device=pred_3000.device,
+                    dtype=pred_3000.dtype,
                 )
-                full_pred_4992[:, prediction_offset : prediction_offset + prediction_length] = pred_3000
+                full_pred_4992[
+                    :, prediction_offset : prediction_offset + prediction_length
+                ] = pred_3000
 
                 cropped_pred = full_pred_4992[:, left_pad : left_pad + original_len]
                 predictions_dict[original_seq] = cropped_pred.tolist()
@@ -181,16 +190,22 @@ def fastapi_app():
                 original_seq = meta["original_seq"]
                 original_len = meta["original_len"]
                 num_chunks = meta["num_chunks"]
-                seq_preds = preds[meta["batch_start"] : meta["batch_start"] + num_chunks]
+                seq_preds = preds[
+                    meta["batch_start"] : meta["batch_start"] + num_chunks
+                ]
                 num_tracks = seq_preds.shape[1]
 
                 prediction_aggregator = torch.zeros(
-                    num_tracks, original_len,
-                    device=seq_preds.device, dtype=seq_preds.dtype,
+                    num_tracks,
+                    original_len,
+                    device=seq_preds.device,
+                    dtype=seq_preds.dtype,
                 )
                 overlap_counter = torch.zeros(
-                    1, original_len,
-                    device=seq_preds.device, dtype=seq_preds.dtype,
+                    1,
+                    original_len,
+                    device=seq_preds.device,
+                    dtype=seq_preds.dtype,
                 )
 
                 is_tail_chunk = (original_len - window_size) % step_size != 0
@@ -204,16 +219,23 @@ def fastapi_app():
                     prediction_start = start_pos_in_original + prediction_offset
                     prediction_end = prediction_start + prediction_length
 
-                    prediction_aggregator[:, prediction_start:prediction_end] += seq_preds[i]
+                    prediction_aggregator[:, prediction_start:prediction_end] += (
+                        seq_preds[i]
+                    )
                     overlap_counter[:, prediction_start:prediction_end] += 1
 
                 overlap_counter[overlap_counter == 0] = 1
                 final_prediction = prediction_aggregator / overlap_counter
                 predictions_dict[original_seq] = final_prediction.tolist()
 
-        print(
-            f"request {req_id} completed in {round(time.monotonic() - start_time, 2)} seconds"
-        )
+        elapsed = time.monotonic() - start_time
+        print(f"request {req_id} completed in {round(elapsed, 2)} seconds")
+        if bench:
+            return {
+                "batch_size": len(batch_items),
+                "num_sequences": len(processed_seqs),
+                "server_time_seconds": elapsed,
+            }
         return predictions_dict
 
     return app

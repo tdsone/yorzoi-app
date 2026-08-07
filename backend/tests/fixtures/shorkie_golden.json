@@ -1,0 +1,20 @@
+{
+  "source": "predictions_f0_chunk009.h5 (genomic)",
+  "source_attrs": {
+    "chunk": 9,
+    "end_idx": 1000,
+    "fold": 0,
+    "start_idx": 900
+  },
+  "fold": 0,
+  "n_sequences": 4,
+  "n_tracks": 64,
+  "seq_length": 16384,
+  "n_bins": 896,
+  "generator": "TensorFlow Shorkie via modal_extract_weights.py",
+  "stats": {
+    "mean": 3.235912561416626,
+    "max": 48.89848709106445,
+    "min": 0.00042393035255372524
+  }
+}

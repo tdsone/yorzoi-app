@@ -2,3 +2,10 @@ backend/.venv
 *__pycache__*
 frontend/dist/*
 frontend/node_modules/*
+
+# Model weights are converted locally and baked into the deployment image
+backend/data/*.safetensors
+
+# Local secrets
+.env
+backend/.env
