@@ -27,6 +27,16 @@ def sig(x: np.ndarray, digits: int = 3) -> np.ndarray:
     return np.where(arr <= _TINY, 0.0, np.round(arr * scale) / scale)
 
 
+def sig_signed(x: np.ndarray, digits: int = 3) -> np.ndarray:
+    """Round to `digits` significant digits, preserving sign.
+
+    `sig` assumes non-negative input (softplus coverage); attribution matrices are
+    signed, so they go through here instead.
+    """
+    arr = np.asarray(x, dtype=np.float64)
+    return np.sign(arr) * sig(np.abs(arr), digits)
+
+
 def to_json_values(values: np.ndarray, digits: int = 3) -> list:
     """(n_tracks, n_bins) -> nested lists of rounded Python floats."""
     return sig(values, digits).tolist()
@@ -72,6 +82,29 @@ def build_npz(
         json.dumps(meta).encode("utf-8"), dtype=np.uint8
     )
 
+    buf = io.BytesIO()
+    np.savez(buf, **members)
+    return buf.getvalue()
+
+
+def build_ism_npz(result: dict) -> bytes:
+    """Serialize a finished ISM job result as an uncompressed .npz.
+
+    Values come from the stored JSON result, so they carry the same 3-significant-digit
+    precision as the JSON body. Logos (PNGs) are deliberately excluded.
+    """
+    matrices = result["matrices"]
+    members: dict[str, np.ndarray] = {
+        "raw": np.asarray(matrices["raw"], dtype=np.float32),
+        "centered": np.asarray(matrices["centered"], dtype=np.float32),
+        "projected": np.asarray(matrices["projected"], dtype=np.float32),
+        "u0": np.asarray(result["meta"]["u0"], dtype=np.float64),
+        "alphabet": np.asarray(matrices["alphabet"]),
+        "start_bp": np.asarray(matrices["start_bp"], dtype=np.int32),
+        "meta_json": np.frombuffer(
+            json.dumps(result["meta"]).encode("utf-8"), dtype=np.uint8
+        ),
+    }
     buf = io.BytesIO()
     np.savez(buf, **members)
     return buf.getvalue()

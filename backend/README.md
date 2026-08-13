@@ -39,7 +39,12 @@ GET  /v1/models                     geometry of every registered model
 GET  /v1/models/{model}             one model + limits with worked examples
 GET  /v1/models/{model}/tracks      full track catalog (cacheable)
 POST /v1/models/{model}/predict     ?format=json|npz&bench=true
+POST /v1/models/{model}/ism         submit a saturation-mutagenesis job (202 + job id)
+GET  /v1/ism/jobs/{job_id}          ?format=json|npz — poll status / fetch the result
 ```
+
+The ISM routes are served by the dedicated gateway deployment (see the ISM section);
+the per-model predict services do not register them.
 
 ```bash
 # Default: assay profiles over a 1 kb promoter, ~1 KB of JSON.
@@ -69,6 +74,74 @@ Requests take `sequences` (1–8, plain strings or `{id, seq}`), a selection
 (`auto` | `full` | `native`). Responses are index-aligned arrays keyed by your `id` —
 never by the sequence string, which silently collapses duplicates and echoes kilobytes
 back at you.
+
+## In-silico saturation mutagenesis (ISM)
+
+Available for **yorzoi** and **shorkie**. Every position in a window is mutated to
+every other base, each mutant is scored with a scalar metric u, and the result is the
+data behind a sequence plot: for every position, u for all four bases, plus
+tangermeme-equivalent attribution matrices and server-rendered logos.
+
+ISM is an **async job** — a full-window scan is minutes of GPU, past Modal's 150 s
+web ceiling — served by a dedicated CPU gateway that validates, spawns an A100
+worker, and polls. Polling never keeps a GPU warm; the GPU bills only for the job.
+
+```
+POST /v1/models/{model}/ism         -> 202 {job_id, n_mutants, n_forwards, poll}
+GET  /v1/ism/jobs/{job_id}          -> {status: running | failed | succeeded, ...}
+GET  /v1/ism/jobs/{job_id}?format=npz   binary matrices, PNGs excluded
+```
+
+```bash
+# Submit: mutate a 300 bp window, score u = mean coverage over a gene body,
+# strand-averaged (u = (u_fwd + u_revcomp)/2), logos for both normalizations.
+curl -sS -X POST "$GATEWAY/v1/models/yorzoi/ism" \
+  -H 'content-type: application/json' -d '{
+    "sequence": {"id": "my-promoter", "seq": "ACGT..."},
+    "ism_window": {"start": 200, "end": 500},
+    "metric": {"interval": {"start": 500, "end": 900},
+               "strand_average": true, "agg": "mean"},
+    "plots": {"normalization": "both"}
+  }'
+```
+
+```python
+import time, requests
+job = requests.post(f"{GATEWAY}/v1/models/yorzoi/ism", json=body).json()
+while (r := requests.get(f"{GATEWAY}{job['poll']}").json())["status"] == "running":
+    time.sleep(5)
+result = r["result"]                      # matrices + base64 PNG logos
+raw = result["matrices"]["raw"]           # [4][W]: u per base per position
+```
+
+Request semantics:
+
+- **One sequence, one window**: `len(seq) <= seq_length` (4992 yorzoi / 16384
+  shorkie), no tiling. Mutating positions outside the predicted span is allowed —
+  they affect predictions inside it — but `metric.interval` must lie within the
+  predicted span. N is rejected inside `ism_window` (no reference base), legal
+  elsewhere.
+- **`metric`** (prototype `interval_mean`, registry-extensible): per-bin values
+  averaged over `interval` (partial edge bins overlap-weighted; `agg: "sum"` skips
+  the normalization), averaged across the selected `tracks`/`track_groups`/`preset`
+  (raw values — no per-window mean normalization, which would hide uniform effects).
+  `strand_average: true` is reverse-complement TTA: every input also runs
+  reverse-complemented (yorzoi: paired-strand tracks swapped, coordinates mirrored)
+  and u is the average — at twice the forward passes.
+- **`plots.normalization`** picks logos only; the matrices always include everything:
+  `raw` (4xW, u per base, reference entries = u0), `centered` (raw minus its
+  per-position mean — tangermeme's hypothetical view; the observed-base projection of
+  this is the standard ISM logo), `projected` (W, `centered` at the observed base,
+  = u0 − mean). Not z-scored, matching tangermeme; verified equal to
+  `tangermeme.saturation_mutagenesis` to float precision in
+  `tests/test_ism_tangermeme.py`.
+
+Costs, roughly: a full-window yorzoi scan is ~15k forwards (~tens of seconds of
+A100); full-window shorkie ~49k (~minutes); `strand_average` doubles both. The
+host-transfer per mutant scales with the track selection — an all-track shorkie
+metric moves ~19 MB per forward, so select the tracks you mean. JSON results are
+~0.3–1 MB plus ~50–200 KB per logo. Job results live in Modal's FunctionCall store
+(~7-day retention); after that, polls return **410** and you re-submit.
 
 ## Reading the output
 
@@ -162,7 +235,8 @@ absolute deviation 9.9e-05**.
 cd backend && modal deploy modal_app.py
 ```
 
-Paths resolve against the deploy directory, so run it from `backend/`. Four services:
+Paths resolve against the deploy directory, so run it from `backend/`. Four predict
+services plus the ISM tier:
 
 - **shorkie** serves from **CPU** — a 16384 bp forward is ~0.10 s on four threads for
   a 14.2 M-parameter model, so a GPU buys nothing and costs a cold start.
@@ -170,6 +244,11 @@ Paths resolve against the deploy directory, so run it from `backend/`. Four serv
   (flash_attn) and runs under bf16 autocast — a ~3x faster borzoi distillation with
   the same head. Its image installs a flash-attn wheel prebuilt for the pinned torch;
   changing the torch pin means changing the wheel URL in `modal_app.py`.
+- **IsmGateway** (CPU) hosts the ISM routes for both models and spawns
+  **YorzoiIsmWorker** / **ShorkieIsmWorker** (A100, 30 min timeout, 2 min
+  scaledown). Shorkie ISM runs on GPU even though its predict service is CPU: a scan
+  is tens of thousands of forwards, not one. Batch sizes are `ISM_BATCH` in
+  `app/ism/engine.py`, overridable per deploy with `ISM_BATCH_SIZE`.
 
 This does not touch `index.py`; the current deployment keeps serving until the new
 service is verified and the frontend is switched.

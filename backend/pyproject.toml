@@ -19,6 +19,7 @@ dev = [
     "h5py>=3.12",
     "torch>=2.5",
     "safetensors>=0.8.0",
+    "matplotlib>=3.9",
 ]
 
 [tool.pytest.ini_options]

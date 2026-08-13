@@ -72,6 +72,51 @@ class NativeWindowUnavailable(BadRequest):
     code = "native_window_unavailable"
 
 
+class IsmUnsupportedModel(BadRequest):
+    code = "ism_unsupported_model"
+
+
+class IsmSequenceTooLong(BadRequest):
+    """ISM is single-window: the cap is `seq_length`, not the tiled `max_seq_len`."""
+
+    code = "ism_sequence_too_long"
+
+
+class IsmWindowInvalid(BadRequest):
+    code = "ism_window_invalid"
+
+
+class IsmWindowContainsN(BadRequest):
+    """An N has no reference base, so the raw matrix column would be meaningless.
+    Ns outside the mutated window stay legal, exactly as in predict."""
+
+    code = "ism_window_contains_n"
+
+
+class IntervalOutsidePredictedSpan(BadRequest):
+    code = "interval_outside_predicted_span"
+
+
+class StrandAverageUnsupported(BadRequest):
+    code = "strand_average_unsupported"
+
+
+class UnknownMetric(BadRequest):
+    code = "unknown_metric"
+
+
+class JobNotFound(ApiError):
+    code = "job_not_found"
+    status = 404
+
+
+class JobExpired(ApiError):
+    """The job finished, but its stored result has passed the retention window."""
+
+    code = "job_expired"
+    status = 410
+
+
 class ModelLoading(ApiError):
     code = "model_loading"
     status = 503

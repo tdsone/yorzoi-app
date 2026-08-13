@@ -17,11 +17,14 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app import engine as EN
-from app.core.errors import ApiError, ModelUnavailable
-from app.core.serialize import build_npz, to_json_values
+from app.core.errors import ApiError, IsmUnsupportedModel, ModelUnavailable
+from app.core.serialize import build_ism_npz, build_npz, to_json_values
 from app.core.spec import REGISTRY, get_spec
 from app.core.tracks import DEFAULT_PRESET, load_catalog
-from app.schemas import PredictRequest
+from app.ism import ISM_MODELS
+from app.ism.engine import plan_ism
+from app.ism.jobs import IsmLauncher
+from app.schemas import IsmRequest, PredictRequest
 
 API_VERSION = 1
 ENGINE_VERSION = "1.0.0"
@@ -45,9 +48,16 @@ def allowed_origins() -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()] if raw else list(DEFAULT_ORIGINS)
 
 
-def create_app(adapters: dict[str, object] | None = None) -> FastAPI:
+def create_app(
+    adapters: dict[str, object] | None = None,
+    ism_launcher: IsmLauncher | None = None,
+) -> FastAPI:
     """`adapters` maps model name -> a loaded ModelAdapter. Models absent from the map
-    are advertised by /v1/models but return 503 from /predict."""
+    are advertised by /v1/models but return 503 from /predict.
+
+    `ism_launcher` enables the ISM job routes; None (every predict service) leaves
+    them unregistered. It is a seam so this module never imports modal: the deployed
+    launcher lives in modal_app.py, tests inject an in-process one."""
     adapters = adapters or {}
     # No custom response class: current FastAPI serializes to JSON bytes directly and
     # deprecates ORJSONResponse.
@@ -78,6 +88,7 @@ def create_app(adapters: dict[str, object] | None = None) -> FastAPI:
             "engine_version": ENGINE_VERSION,
             "models": sorted(REGISTRY),
             "loaded": sorted(n for n, a in adapters.items() if getattr(a, "loaded", False)),
+            "ism": sorted(set(ISM_MODELS) & set(ism_launcher.models)) if ism_launcher else [],
         }
 
     @app.get("/v1/models")
@@ -94,6 +105,7 @@ def create_app(adapters: dict[str, object] | None = None) -> FastAPI:
             "loaded": bool(adapter and getattr(adapter, "loaded", False)),
             "provenance": adapter.describe() if adapter else None,
             "default_preset": DEFAULT_PRESET.get(model),
+            "ism_supported": model in ISM_MODELS,
             "limits": {
                 "max_sequences": limits.max_sequences,
                 "max_total_bp": limits.max_total_bp,
@@ -235,6 +247,70 @@ def create_app(adapters: dict[str, object] | None = None) -> FastAPI:
                 for p in result.predictions
             ],
         }
+
+    if ism_launcher is not None:
+
+        @app.post("/v1/models/{model}/ism", status_code=202)
+        def submit_ism(model: str, req: IsmRequest, request: Request):
+            request_id = str(uuid4())
+            request.state.request_id = request_id
+
+            spec = get_spec(model)
+            if model not in ISM_MODELS:
+                raise IsmUnsupportedModel(
+                    f"ISM is not available for {model!r}; supported: "
+                    f"{', '.join(ISM_MODELS)}",
+                    field="model",
+                    model=model,
+                )
+            if model not in ism_launcher.models:
+                raise ModelUnavailable(model)
+
+            # Full validation on the gateway CPU — sequence, window, interval,
+            # tracks — so a bad request never spins up a GPU. The arrays the plan
+            # allocates are discarded; the worker re-plans from the payload.
+            plan = plan_ism(model, req, spec=spec, catalog=load_catalog(model))
+            job_id = ism_launcher.submit(
+                model, {"request": req.model_dump(mode="json"), "request_id": request_id}
+            )
+            log.info(
+                "ism submit model=%s id=%s job=%s window=[%d,%d) mutants=%d forwards=%d",
+                model, request_id, job_id, plan.ism_start, plan.ism_end,
+                plan.n_mutants, plan.n_forwards,
+            )
+            return {
+                "job_id": job_id,
+                "model": model,
+                "status": "submitted",
+                "n_mutants": plan.n_mutants,
+                "n_forwards": plan.n_forwards,
+                "poll": f"/v1/ism/jobs/{job_id}",
+            }
+
+        @app.get("/v1/ism/jobs/{job_id}")
+        def poll_ism(job_id: str, format: str = Query("json", pattern="^(json|npz)$")):
+            status = ism_launcher.status(job_id)     # JobNotFound -> 404, JobExpired -> 410
+            if status.state == "running":
+                return {"job_id": job_id, "status": "running"}
+            if status.state == "failed" or status.body.get("status") != "succeeded":
+                # HTTP 200: the *request* succeeded, the job did not.
+                error = (status.body or {}).get("error")
+                return {"job_id": job_id, "status": "failed", "error": error}
+
+            result = status.body["result"]
+            if format == "npz":
+                payload = build_ism_npz(result)
+                model_name = result["meta"].get("model", "ism")
+                return Response(
+                    content=payload,
+                    media_type="application/octet-stream",
+                    headers={
+                        "Content-Encoding": "identity",
+                        "Content-Length": str(len(payload)),
+                        "Content-Disposition": f'attachment; filename="{model_name}_ism.npz"',
+                    },
+                )
+            return {"job_id": job_id, "status": "succeeded", "result": result}
 
     return app
 

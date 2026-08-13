@@ -89,7 +89,9 @@ def test_deployment_image_covers_the_vendored_module_imports():
     third_party -= set(sys.stdlib_module_names)
 
     spec = (ROOT / "modal_app.py").read_text()
-    # The CPU image is everything up to the GPU image definition.
-    cpu_image = spec.split("gpu_image = (")[0]
+    # The CPU predict image is everything up to the first GPU image base.
+    marker = "_yorzoi_base = ("
+    assert marker in spec, "modal_app.py image layout changed; update this test's marker"
+    cpu_image = spec.split(marker)[0]
     missing = [name for name in sorted(third_party) if f'"{name}' not in cpu_image]
     assert not missing, f"deployment image is missing: {missing}"
