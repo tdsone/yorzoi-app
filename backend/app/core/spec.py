@@ -120,7 +120,39 @@ YORZOI = ModelSpec(
     ),
 )
 
-REGISTRY: dict[str, ModelSpec] = {s.name: s for s in (SHORKIE, YORZOI)}
+_BORZOI_GEOMETRY = dict(
+    seq_length=524_288,
+    crop_bp=163_840,       # 16384 bins of 32 bp, minus the 6144 centre bins, halved
+    bin_size=32,
+    n_tracks=7611,
+    stranded=True,         # CAGE and RNA-seq tracks pair via strand_pair; DNase/ATAC/ChIP are unstranded
+    value_space="squashed_scaled_coverage",
+    depth_normalized=False,
+    default_step=98_304,   # half the predicted span
+    max_seq_len=524_288,
+)
+
+BORZOI = ModelSpec(
+    name="borzoi",
+    **_BORZOI_GEOMETRY,
+    description=(
+        "Borzoi (Linder et al.), PyTorch port (borzoi-pytorch). 32 bp bins over 7611 "
+        "human tracks (CAGE, DNase, ATAC, ChIP, RNA-seq). Values are in the model's "
+        "native training space — per-track scale and soft-clip squashing are NOT "
+        "inverted — so compare positions and sequences, not tracks."
+    ),
+)
+
+FLASHZOI = ModelSpec(
+    name="flashzoi",
+    **_BORZOI_GEOMETRY,
+    description=(
+        "Flashzoi (Hingerl et al.), a ~3x faster Borzoi distillation with rotary flash "
+        "attention. Same geometry, tracks and value space as borzoi; runs in bf16."
+    ),
+)
+
+REGISTRY: dict[str, ModelSpec] = {s.name: s for s in (SHORKIE, YORZOI, BORZOI, FLASHZOI)}
 
 
 def get_spec(name: str) -> ModelSpec:

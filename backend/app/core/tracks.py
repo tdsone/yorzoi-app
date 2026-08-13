@@ -30,6 +30,18 @@ RAW = "raw"
 PROFILE = "profile"
 
 # preset -> ordered list of (row_label, group_name). "all" is handled separately.
+# Borzoi and Flashzoi share one head, so they share one preset table.
+_BORZOI_PRESETS: dict[str, list[tuple[str, str]]] = {
+    "assay_profiles": [
+        ("CAGE", "cage"),
+        ("DNase", "dnase"),
+        ("ATAC", "atac"),
+        ("ChIP", "chip"),
+        ("RNA-seq", "rna"),
+    ],
+    "rna_profile": [("RNA-seq", "rna")],
+}
+
 PRESETS: dict[str, dict[str, list[tuple[str, str]]]] = {
     "shorkie": {
         "assay_profiles": [
@@ -43,9 +55,16 @@ PRESETS: dict[str, dict[str, list[tuple[str, str]]]] = {
     "yorzoi": {
         "strand_profiles": [("Plus strand", "plus"), ("Minus strand", "minus")],
     },
+    "borzoi": _BORZOI_PRESETS,
+    "flashzoi": _BORZOI_PRESETS,
 }
 
-DEFAULT_PRESET = {"shorkie": "assay_profiles", "yorzoi": "strand_profiles"}
+DEFAULT_PRESET = {
+    "shorkie": "assay_profiles",
+    "yorzoi": "strand_profiles",
+    "borzoi": "assay_profiles",
+    "flashzoi": "assay_profiles",
+}
 
 
 @dataclass(frozen=True)

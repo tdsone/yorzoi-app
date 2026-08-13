@@ -36,8 +36,15 @@ class Limits:
     def for_spec(cls, spec: ModelSpec) -> "Limits":
         # Budget in tiles and output elements rather than bp: the same bp count means
         # wildly different compute and payload for a 4992 bp model with 162 tracks and
-        # a 16384 bp model with 5215.
-        return cls(max_total_bp=min(262_144, spec.max_seq_len * 2))
+        # a 16384 bp model with 5215. The bp ceiling still scales with the window —
+        # a single borzoi pass is 524 kb, twice the cap that fits the small models.
+        return cls(
+            max_total_bp=min(1_048_576, spec.max_seq_len * 2),
+            # A 524 kb window holds ~16k tokens of attention plus a conv tower over
+            # half a million positions; four of those in one forward is GPU-memory
+            # roulette where four shorkie tiles are trivial.
+            micro_batch=4 if spec.seq_length <= 32_768 else 2,
+        )
 
 
 @dataclass

@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api import MAX_ROWS_JSON, create_app
-from app.core.spec import SHORKIE, YORZOI
+from app.core.spec import BORZOI, FLASHZOI, SHORKIE, YORZOI
 from app.models.stub import StubAdapter
 
 SEQ = "ACGT" * 250          # 1000 bp
@@ -15,7 +15,7 @@ SEQ = "ACGT" * 250          # 1000 bp
 @pytest.fixture(scope="module")
 def client():
     adapters = {}
-    for spec in (SHORKIE, YORZOI):
+    for spec in (SHORKIE, YORZOI, BORZOI, FLASHZOI):
         adapter = StubAdapter(spec)
         adapter.load()
         adapters[spec.name] = adapter
@@ -38,7 +38,7 @@ class TestMetadataEndpoints:
         body = bare_client.get("/health").json()
         assert body["ok"] is True
         assert body["loaded"] == []
-        assert set(body["models"]) == {"shorkie", "yorzoi"}
+        assert set(body["models"]) == {"shorkie", "yorzoi", "borzoi", "flashzoi"}
 
     def test_list_models(self, client):
         models = {m["name"]: m for m in client.get("/v1/models").json()["models"]}
@@ -46,6 +46,10 @@ class TestMetadataEndpoints:
         assert models["shorkie"]["bin_size_bp"] == 16
         assert models["yorzoi"]["n_bins_full"] == 300
         assert models["yorzoi"]["bin_size_bp"] == 10
+        for name in ("borzoi", "flashzoi"):
+            assert models[name]["n_bins_full"] == 6144
+            assert models[name]["bin_size_bp"] == 32
+            assert models[name]["n_tracks"] == 7611
 
     def test_describe_model_publishes_worked_limits(self, client):
         body = client.get("/v1/models/shorkie").json()
