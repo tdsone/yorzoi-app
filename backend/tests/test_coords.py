@@ -3,10 +3,17 @@ import pytest
 
 from app.core import coords as C
 from app.core.errors import BadRequest, NativeWindowUnavailable, TilingGap
-from app.core.spec import SHORKIE, YORZOI
+from app.core.spec import BORZOI, SHORKIE, YORZOI
 
-SPECS = [SHORKIE, YORZOI]
-STEPS = {SHORKIE.name: [16, 64, 7168, 8192, 14336], YORZOI.name: [10, 20, 500, 1000, 3000]}
+# FLASHZOI shares BORZOI's geometry dict, so sweeping it would test the same numbers.
+SPECS = [SHORKIE, YORZOI, BORZOI]
+STEPS = {
+    SHORKIE.name: [16, 64, 7168, 8192, 14336],
+    YORZOI.name: [10, 20, 500, 1000, 3000],
+    # No tiny strides here: step=32 over a 524 kb input would materialise ~10k tiles
+    # per merge just to prove alignment the 4096 stride already proves.
+    BORZOI.name: [4096, 32_768, 98_304, 196_608],
+}
 
 
 def lengths_for(spec):

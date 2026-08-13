@@ -5,6 +5,10 @@
 Shorkie: parses the released targets sheet (data/shorkie_targets.txt, downloaded from
 https://storage.googleapis.com/seqnn-share/shorkie_models/shorkie/targets.txt).
 Yorzoi:  reworks track_annotation.json into the same schema.
+Borzoi/Flashzoi: parse the Calico targets sheet (data/borzoi_targets_human.txt,
+downloaded from
+https://raw.githubusercontent.com/calico/borzoi/main/examples/targets_human.txt).
+Both models share the 7611-track human head, so both catalogs come from one sheet.
 
 Assay is assigned by index range and cross-checked against the description text. The
 sheet's own `group` column is not usable: it labels all 1128 ChIP-exo rows "Other".
@@ -142,8 +146,81 @@ def build_yorzoi() -> dict:
     }
 
 
+# Contiguous blocks in the released sheet; the description prefix is the tripwire.
+BORZOI_BLOCKS = [
+    ("cage", 0, 1276, r"^CAGE:"),
+    ("dnase", 1276, 1950, r"^DNASE:"),
+    ("atac", 1950, 2182, r"^ATAC:"),
+    ("chip", 2182, 6068, r"^CHIP:"),
+    ("rna", 6068, 7611, r"^RNA:"),
+]
+
+
+def build_borzoi(model: str) -> dict:
+    src = DATA / "borzoi_targets_human.txt"
+    with src.open(newline="") as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+
+    if len(rows) != 7611:
+        raise SystemExit(f"expected 7611 rows, got {len(rows)}")
+
+    assay_of: dict[int, str] = {}
+    for assay, lo, hi, pattern in BORZOI_BLOCKS:
+        rx = re.compile(pattern)
+        mismatched = sum(1 for i in range(lo, hi) if not rx.search(rows[i]["description"]))
+        for i in range(lo, hi):
+            assay_of[i] = assay
+        if mismatched:
+            raise SystemExit(
+                f"{assay}: {mismatched}/{hi - lo} descriptions do not match /{pattern}/ "
+                "— the sheet layout may have changed; re-derive the blocks before shipping"
+            )
+
+    # The Calico sheet's index column has an empty header cell.
+    index_key = "index" if "index" in rows[0] else ""
+
+    tracks = []
+    for i, row in enumerate(rows):
+        if int(row[index_key]) != i:
+            raise SystemExit(f"index column is not contiguous at row {i}")
+        entry = {
+            "i": i,
+            "id": row["identifier"],
+            "assay": assay_of[i],
+            "description": row["description"],
+        }
+        pair = int(row["strand_pair"])
+        if pair != i:
+            entry["strand_pair"] = pair
+        tracks.append(entry)
+
+    ids = {t["id"] for t in tracks}
+    if len(ids) != len(tracks):
+        raise SystemExit("duplicate identifiers in the sheet")
+    for t in tracks:
+        pair = t.get("strand_pair")
+        if pair is not None and tracks[pair].get("strand_pair") != t["i"]:
+            raise SystemExit(f"strand_pair is not symmetric at track {t['i']}")
+
+    return {
+        "model": model,
+        "n_tracks": len(tracks),
+        "source": {
+            "url": "https://raw.githubusercontent.com/calico/borzoi/main/examples/targets_human.txt",
+            "note": "borzoi and flashzoi share the 7611-track human head",
+        },
+        "groups": {a: [lo, hi] for a, lo, hi, _ in BORZOI_BLOCKS},
+        "tracks": tracks,
+    }
+
+
 def main() -> int:
-    for name, build in (("shorkie", build_shorkie), ("yorzoi", build_yorzoi)):
+    for name, build in (
+        ("shorkie", build_shorkie),
+        ("yorzoi", build_yorzoi),
+        ("borzoi", lambda: build_borzoi("borzoi")),
+        ("flashzoi", lambda: build_borzoi("flashzoi")),
+    ):
         catalog = build()
         out = DATA / f"{name}_tracks.json"
         out.write_text(json.dumps(catalog, separators=(",", ":")))

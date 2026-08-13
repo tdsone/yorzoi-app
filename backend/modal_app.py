@@ -32,6 +32,18 @@ MINUTES = 60
 # is nothing for a response or a cache key to bind to.
 YORZOI_REVISION: str | None = None      # set to a commit SHA before deploying yorzoi
 
+# huggingface.co/johahi/{borzoi,flashzoi}-replicate-0, main as of 2026-08-10.
+BORZOI_REVISION = "521db103372769581b8d1d616e6a3b496da490c5"
+FLASHZOI_REVISION = "72040fb525d4b9abab21ead1c53b76b6bd8b6d67"
+
+# Prebuilt for exactly (cu12, torch 2.5, cp312, cxx11abi=FALSE) — the ABI of PyPI
+# torch 2.5 wheels. Changing the torch pin below means changing this URL too;
+# installing flash-attn from sdist instead is a ~30 min nvcc build.
+FLASH_ATTN_WHEEL = (
+    "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/"
+    "flash_attn-2.7.4.post1+cu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl"
+)
+
 app = modal.App("yorzoi-api")
 
 base_image = (
@@ -64,6 +76,60 @@ gpu_image = (
     .pip_install("yorzoi==0.2.1", "fastapi[standard]==0.115.*", "numpy>=1.26", "pydantic>=2.9")
     .add_local_dir(HERE / "data", "/root/data", copy=True)
     .add_local_python_source("app")
+)
+
+
+def _bake_borzoi_weights():
+    # Runs at image build with HF_HOME=/weights, so containers do no network I/O.
+    # pytorch_model.bin is excluded: from_pretrained prefers the safetensors file and
+    # the .bin duplicate is ~750 MB of dead image weight.
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(
+        "johahi/borzoi-replicate-0",
+        revision=BORZOI_REVISION,
+        allow_patterns=["*.json", "*.safetensors"],
+    )
+
+
+def _bake_flashzoi_weights():
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(
+        "johahi/flashzoi-replicate-0",
+        revision=FLASHZOI_REVISION,
+        allow_patterns=["*.json", "*.safetensors"],
+    )
+
+
+def _borzoi_family_image(bake) -> modal.Image:
+    return (
+        modal.Image.debian_slim(python_version="3.12")
+        # Default PyPI torch bundles the CUDA 12 runtime; the flash-attn wheel above
+        # is compiled against exactly this torch line.
+        .pip_install("torch==2.5.*")
+        .pip_install(
+            "borzoi-pytorch==0.5.1",
+            "fastapi[standard]==0.115.*",
+            "numpy>=1.26",
+            "pydantic>=2.9",
+        )
+        .env({"HF_HOME": "/weights"})
+        .run_function(bake)
+        # Containers must never fall back to the network for weights: offline mode
+        # turns a cache miss into a loud boot failure instead of an unpinned download.
+        .env({"HF_HUB_OFFLINE": "1"})
+    )
+
+
+def _finalize(image: modal.Image) -> modal.Image:
+    # Local layers stay last so edits to app/ or data/ do not rebuild the image.
+    return image.add_local_dir(HERE / "data", "/root/data", copy=True).add_local_python_source("app")
+
+
+borzoi_image = _finalize(_borzoi_family_image(_bake_borzoi_weights))
+flashzoi_image = _finalize(
+    _borzoi_family_image(_bake_flashzoi_weights).pip_install(FLASH_ATTN_WHEEL)
 )
 
 
@@ -121,6 +187,57 @@ class YorzoiService:
         adapter = YorzoiAdapter(revision=YORZOI_REVISION)
         adapter.load("cuda:0")
         self.asgi = create_app({"yorzoi": adapter})
+
+    @modal.asgi_app()
+    def web(self):
+        return self.asgi
+
+
+@app.cls(
+    image=borzoi_image,
+    gpu="A100",
+    memory=(8192, 24576),
+    timeout=150,
+    scaledown_window=10 * MINUTES,
+    max_containers=4,
+)
+# One 524 kb window is ~16k attention tokens over a conv tower spanning half a million
+# positions; two interleaved fp32 forwards is where a 40 GB A100 starts to be a
+# gamble, so concurrency is lower than the small-window services.
+@modal.concurrent(max_inputs=2, target_inputs=1)
+class BorzoiService:
+    @modal.enter()
+    def start(self):
+        from app.api import create_app
+        from app.models.borzoi import BorzoiAdapter
+
+        adapter = BorzoiAdapter(variant="borzoi", revision=BORZOI_REVISION)
+        adapter.load("cuda:0")
+        self.asgi = create_app({"borzoi": adapter})
+
+    @modal.asgi_app()
+    def web(self):
+        return self.asgi
+
+
+@app.cls(
+    image=flashzoi_image,
+    gpu="A100",
+    memory=(8192, 24576),
+    timeout=150,
+    scaledown_window=10 * MINUTES,
+    max_containers=4,
+)
+@modal.concurrent(max_inputs=2, target_inputs=1)
+class FlashzoiService:
+    @modal.enter()
+    def start(self):
+        from app.api import create_app
+        from app.models.borzoi import BorzoiAdapter
+
+        adapter = BorzoiAdapter(variant="flashzoi", revision=FLASHZOI_REVISION)
+        adapter.load("cuda:0")
+        self.asgi = create_app({"flashzoi": adapter})
 
     @modal.asgi_app()
     def web(self):
