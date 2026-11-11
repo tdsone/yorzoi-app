@@ -1,53 +1,50 @@
 # Yorzoi Website and API
 
-Yorzoi (RNA-seq coverage prediction from DNA) is freely available at
-[yorzoi.eu](https://www.yorzoi.eu) without coding, and via API.
+Explore predicted genomic signal from DNA sequences through the
+[Yorzoi website](https://www.yorzoi.eu) or the prediction API.
 
-## API
+## Current capabilities
 
-### Current (deployed)
+- **Sequence editor:** a React interface built on Open Vector Editor, displaying
+  forward- and reverse-strand Yorzoi coverage for three selected datasets.
+- **Prediction API:** a shared `/v1` interface for **Yorzoi, Shorkie, Borzoi and
+  Flashzoi**, with track selection, sequence tiling, matrix or aggregate output,
+  and JSON or NumPy archives.
+- **In-silico saturation mutagenesis (ISM):** asynchronous jobs for **Yorzoi and
+  Shorkie**, returning mutation scores, attribution matrices and optional sequence
+  logos.
+- **Deployment and tests:** Modal services with separate prediction and ISM
+  workers, plus tests for coordinates, API behavior, model equivalence and ISM.
 
-`POST https://tom-ellis-lab--yorzoi-app-fastapi-app.modal.run/generate`
+The frontend currently calls the legacy Yorzoi `/generate` endpoint defined in
+[`backend/index.py`](backend/index.py). The newer services are defined separately
+in [`backend/modal_app.py`](backend/modal_app.py); their availability depends on
+the deployment, and the frontend does not yet expose the other models or ISM.
 
-```jsonc
-// request
-{ "sequences": ["GATC…", "GTA…"] }     // any length; shorter inputs are N-padded and
-                                       // centred, longer ones are tiled and averaged
+## Documentation
 
-// response — an object keyed by each input sequence
-{ "GATC…": [[float]] }                 // [track][position], 162 tracks, per-bp
-```
+- **[User guide](docs/users.md):** using the editor, making prediction and ISM
+  requests, interpreting outputs, limits and known model caveats.
+- **[Developer guide](docs/developers.md):** local setup, architecture, testing,
+  model assets, extending the service and deployment.
 
-Add `?bench=true` to get timings instead of the payload.
+## Local development
 
-Source: [`backend/index.py`](backend/index.py).
-
-### Next (built, not yet deployed)
-
-[`backend/`](backend/README.md) contains a rewritten, model-agnostic service that
-serves both **yorzoi** and **shorkie** (a yeast sequence-to-expression model by Chao
-et al., [reimplemented in PyTorch](https://github.com/tdsone/shorkie-pytorch)) through
-one API:
-
-```
-GET  /health
-GET  /v1/models                     geometry of every model
-GET  /v1/models/{model}/tracks      track catalog
-POST /v1/models/{model}/predict     ?format=json|npz
-```
-
-It fixes two defects in the deployed endpoint — sequences between 3000 and 4992 bp
-currently come back with up to 40% hard zeros presented as predictions, and a coverage
-gap is silently filled with zeros rather than reported — and it is validated end to end
-against the original TensorFlow Shorkie (Pearson 1.0000000000). See
-[`backend/README.md`](backend/README.md) for the API, the test tiers, and two geometry
-facts that remain unverified.
-
-The rewrite does not touch the deployed service; cutover is a deliberate, separate step.
-
-## Development
+Frontend (Node.js and npm):
 
 ```bash
-cd frontend && npm run dev     # frontend dev server
-cd backend  && uv run pytest   # backend test suite
+cd frontend
+npm ci
+npm run dev
 ```
+
+Backend (Python 3.12+ and uv):
+
+```bash
+cd backend
+uv sync --group dev
+uv run pytest
+```
+
+The frontend uses its configured remote API even during local development. See the
+[developer guide](docs/developers.md) for local API smoke tests and model setup.
