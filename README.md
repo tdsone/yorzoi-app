@@ -3,6 +3,11 @@
 Explore predicted genomic signal from DNA sequences through the
 [Yorzoi website](https://www.yorzoi.eu) or the prediction API.
 
+Call the hosted API directly with the **[Python quickstart](docs/users.md#python-quickstart)**;
+no Modal account or local model installation is required. See the
+[public service URLs](docs/users.md#connecting-to-the-versioned-api) and
+[interactive Yorzoi API docs](https://tom-ellis-lab--yorzoi-api-yorzoiservice-web.modal.run/docs).
+
 ## Current capabilities
 
 - **Sequence editor:** a React interface built on Open Vector Editor, displaying
@@ -17,9 +22,9 @@ Explore predicted genomic signal from DNA sequences through the
   workers, plus tests for coordinates, API behavior, model equivalence and ISM.
 
 The frontend currently calls the legacy Yorzoi `/generate` endpoint defined in
-[`backend/index.py`](backend/index.py). The newer services are defined separately
-in [`backend/modal_app.py`](backend/modal_app.py); their availability depends on
-the deployment, and the frontend does not yet expose the other models or ISM.
+[`backend/index.py`](backend/index.py). The deployed `/v1` services are defined
+separately in [`backend/modal_app.py`](backend/modal_app.py). The frontend does
+not yet expose the other models or ISM.
 
 ## Documentation
 

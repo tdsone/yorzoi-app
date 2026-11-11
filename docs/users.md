@@ -7,12 +7,70 @@ selection, batch predictions, and in-silico saturation mutagenesis (ISM).
 See the [project overview](../README.md) for orientation and the
 [developer guide](developers.md) for local setup and deployment.
 
-Jump to [browser usage](#using-the-browser),
+Jump to the [Python quickstart](#python-quickstart),
+[browser usage](#using-the-browser),
 [API connection](#connecting-to-the-versioned-api),
 [models and limits](#choosing-a-model-and-input),
 [predictions](#requesting-predictions),
 [ISM](#in-silico-saturation-mutagenesis), or
 [errors and caveats](#errors-and-interpretation-limits).
+
+## Python quickstart
+
+Use our hosted API directly: no API key, Modal account, GPU, or local model
+installation is required. Install the Python client dependencies:
+
+```bash
+python -m pip install requests numpy
+```
+
+Run this script to predict Yorzoi coverage for one sequence, inspect the returned
+coordinates, and save the result as `prediction.json`:
+
+```python
+import json
+from pathlib import Path
+
+import numpy as np
+import requests
+
+api_base = "https://tom-ellis-lab--yorzoi-api-yorzoiservice-web.modal.run"
+sequence = "ACGT" * 1248  # 4,992 bp example; replace with your DNA sequence.
+
+response = requests.post(
+    f"{api_base}/v1/models/yorzoi/predict",
+    json={
+        "sequences": [{"id": "my-sequence", "seq": sequence}],
+        "tracks": [0, 81],  # One paired forward/reverse dataset.
+        "window": "auto",
+    },
+    timeout=180,
+)
+response.raise_for_status()
+result = response.json()
+prediction = result["predictions"][0]
+values = np.asarray(prediction["values"])
+
+print("Shape (tracks, bins):", values.shape)  # (2, 300) for this example.
+print("First bin starts at bp:", prediction["bin_start_bp"])  # 996
+print("Bin width in bp:", prediction["bin_size_bp"])  # 10
+print("Warnings:", prediction["warnings"])
+Path("prediction.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+```
+
+The repetitive DNA above is only a runnable example. To analyze your own input,
+replace `sequence` with a DNA string or
+`Path("sequence.fasta").read_text()` for a single-record FASTA. Use
+`result["tracks"]` to identify the [track in each output row](#track-selection). Coordinates
+refer to your submitted sequence; this exact-length example predicts its center,
+not its cropped flanks. A first request can take longer while the model loads,
+so the examples allow a 180-second HTTP timeout.
+
+For Shorkie, Borzoi, or Flashzoi, use the matching
+[public service URL](#connecting-to-the-versioned-api), model name, and track
+selection. See [prediction options](#requesting-predictions) for batch and NPZ
+output, or the [complete Python ISM example](#polling-saving-matrices-and-downloading-logos)
+for mutation scores and logos.
 
 ## Using the browser
 
@@ -37,9 +95,8 @@ The frontend is configured to call the legacy Yorzoi endpoint:
 POST https://tom-ellis-lab--yorzoi-app-fastapi-app.modal.run/generate
 ```
 
-It does not currently select the other models or expose ISM. The versioned API
-described below is implemented separately in this repository; source code alone
-does not establish which version is running at a particular public URL.
+It does not currently select the other models or expose ISM. Use the hosted
+versioned API below for those features.
 
 ### Legacy API compatibility
 
@@ -57,21 +114,34 @@ independent model prediction at every base.
 
 ## Connecting to the versioned API
 
-Obtain the prediction service URL for your model from the deployment operator, or
-use a local server configured through the developer guide. The deployment source
-defines separate prediction services and a separate ISM gateway. A URL that serves
-one model need not serve another model, and the legacy `/generate` URL is not a
-versioned API base URL.
+Our public deployment serves all four prediction models and ISM for Yorzoi and
+Shorkie. Use the base URL for your chosen model; ISM uses its own shared gateway.
+The interactive documentation at each `/docs` URL lets you inspect and try requests.
 
-In the shell examples, set `API_BASE` to the prediction service origin, with no
-trailing slash. Set `ISM_BASE` separately to the ISM gateway origin when using ISM.
-The examples require curl and Python 3; Python HTTP examples also use `requests`,
-and NPZ examples use `numpy`.
+| Service | Public base URL | Interactive documentation |
+| --- | --- | --- |
+| Yorzoi predictions | https://tom-ellis-lab--yorzoi-api-yorzoiservice-web.modal.run | [Yorzoi API docs](https://tom-ellis-lab--yorzoi-api-yorzoiservice-web.modal.run/docs) |
+| Shorkie predictions | https://tom-ellis-lab--yorzoi-api-shorkieservice-web.modal.run | [Shorkie API docs](https://tom-ellis-lab--yorzoi-api-shorkieservice-web.modal.run/docs) |
+| Borzoi predictions | https://tom-ellis-lab--yorzoi-api-borzoiservice-web.modal.run | [Borzoi API docs](https://tom-ellis-lab--yorzoi-api-borzoiservice-web.modal.run/docs) |
+| Flashzoi predictions | https://tom-ellis-lab--yorzoi-api-flashzoiservice-web.modal.run | [Flashzoi API docs](https://tom-ellis-lab--yorzoi-api-flashzoiservice-web.modal.run/docs) |
+| ISM gateway (Yorzoi and Shorkie) | https://tom-ellis-lab--yorzoi-api-ismgateway-web.modal.run | [ISM API docs](https://tom-ellis-lab--yorzoi-api-ismgateway-web.modal.run/docs) |
+
+Python examples below already use these public URLs. For the shell examples,
+configure the Yorzoi prediction service and ISM gateway:
+
+```bash
+export API_BASE="https://tom-ellis-lab--yorzoi-api-yorzoiservice-web.modal.run"
+export ISM_BASE="https://tom-ellis-lab--yorzoi-api-ismgateway-web.modal.run"
+```
+
+To use another prediction model, change both `API_BASE` and the model name in the
+request path. The examples require curl and Python 3; Python HTTP examples use
+`requests`, and array/NPZ examples use `numpy`. You only need the
+[developer setup](developers.md) if you want to run or change the service yourself.
 
 Inspect the service before submitting work:
 
 ```bash
-: "${API_BASE:?Set API_BASE to your prediction service URL}"
 curl --fail-with-body --silent --show-error "$API_BASE/health"
 curl --fail-with-body --silent --show-error "$API_BASE/v1/models/yorzoi"
 curl --fail-with-body --silent --show-error "$API_BASE/v1/models/yorzoi/tracks"
@@ -131,8 +201,8 @@ The additional per-request limits are:
   sequence; select fewer tracks or use aggregate mode.
 
 These limits apply together. A sequence that meets the length limit can still
-exceed the tile budget. The service's model description is the source of truth
-for the limits in your deployment.
+exceed the tile budget. The model description reports the limits currently
+configured on the service.
 
 ## Requesting predictions
 
@@ -192,15 +262,14 @@ Aggregate mode is a sum of output bins, not a mean, and does not weight a partia
 last bin by its covered bp count. For normalized profile presets this sum largely
 reflects window length; choose raw tracks for magnitude comparisons.
 
-This Python example compares two 1,000 bp sequences across every Shorkie track.
-Set `API_BASE` to a service with Shorkie loaded. Replace the artificial reference
-with your sequence for analysis.
+This Python example uses our Shorkie deployment to compare two 1,000 bp sequences
+across every track. Replace the artificial reference with your sequence for
+analysis.
 
 ```python
-import os
 import requests
 
-base = os.environ["API_BASE"].rstrip("/")
+base = "https://tom-ellis-lab--yorzoi-api-shorkieservice-web.modal.run"
 reference = "ACGT" * 250
 alternate = reference[:500] + "T" + reference[501:]
 response = requests.post(
@@ -251,12 +320,11 @@ matrix budget. This example selects two raw Yorzoi tracks:
 ```python
 import io
 import json
-import os
 from pathlib import Path
 import numpy as np
 import requests
 
-base = os.environ["API_BASE"].rstrip("/")
+base = "https://tom-ellis-lab--yorzoi-api-yorzoiservice-web.modal.run"
 response = requests.post(
     f"{base}/v1/models/yorzoi/predict?format=npz",
     json={"sequences": ["ACGT" * 250], "tracks": [0, 81]},
@@ -282,8 +350,9 @@ ISM mutates each position in a chosen window to the other three bases and measur
 the effect on a scalar metric. The gateway supports Yorzoi and Shorkie. It returns
 a job ID immediately; the calculation runs separately and may take minutes.
 
-Set `ISM_BASE` to the gateway URL and check `$ISM_BASE/health`. Prediction
-services do not register the ISM routes.
+Use our [ISM gateway](https://tom-ellis-lab--yorzoi-api-ismgateway-web.modal.run/docs)
+for both models. The examples below include its URL; prediction services do not
+register the ISM routes.
 
 An ISM request contains:
 
@@ -318,7 +387,7 @@ strand-paired channels where applicable, and doubles the forward passes.
 This submits a ten-position Yorzoi scan using a 1,000 bp example sequence:
 
 ```bash
-: "${ISM_BASE:?Set ISM_BASE to your ISM gateway URL}"
+ISM_BASE="https://tom-ellis-lab--yorzoi-api-ismgateway-web.modal.run"
 python3 - <<'PY' > ism-request.json
 import json
 print(json.dumps({
@@ -348,12 +417,11 @@ saves the JSON result and PNGs, and retrieves NPZ after completion:
 ```python
 import base64
 import json
-import os
 import time
 from pathlib import Path
 import requests
 
-gateway = os.environ["ISM_BASE"].rstrip("/")
+gateway = "https://tom-ellis-lab--yorzoi-api-ismgateway-web.modal.run"
 response = requests.post(
     f"{gateway}/v1/models/yorzoi/ism",
     json={

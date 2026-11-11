@@ -44,7 +44,7 @@ credentials, model downloads, or a GPU. Packaging tests protect this boundary.
 Use Git, Node.js with npm, Python 3.12 or newer, and `uv`. The frontend does not pin
 a Node version; use a Node installation compatible with its locked dependencies.
 The deployment images explicitly use Python 3.12. A Modal account is needed only
-for cloud deployment, not the local tests below.
+to deploy services, not to call the hosted API or run the local tests below.
 
 Run frontend commands from `frontend/`:
 
@@ -319,8 +319,13 @@ training value space. Changing these semantics is an API-visible change.
 
 ## Modal deployment
 
-The newer Modal application is named `yorzoi-api`. Its topology is defined in
-[`modal_app.py`](../backend/modal_app.py):
+The deployed Modal application is named `yorzoi-api`. Maintainers can manage it
+through the [Modal dashboard](https://modal.com/apps/tom-ellis-lab/main/deployed/yorzoi-api).
+Users can call the [public service URLs](users.md#connecting-to-the-versioned-api)
+directly using the [Python quickstart](users.md#python-quickstart); no Modal
+account or deployment is required to use the hosted API.
+
+Its topology is defined in [`modal_app.py`](../backend/modal_app.py):
 
 | Component | Resources | Role |
 | --- | --- | --- |
@@ -333,8 +338,9 @@ The newer Modal application is named `yorzoi-api`. Its topology is defined in
 Each prediction service loads only its own model. Its metadata routes still list
 all registered models, but requests for other models return `503`. ISM endpoints
 exist on the gateway; prediction endpoints on that gateway have no loaded
-adapters. Record the separate URLs printed by Modal rather than assuming one URL
-serves every operation.
+adapters. Use the separate origins in the
+[public endpoint table](users.md#connecting-to-the-versioned-api). When deploying
+to another workspace, record the URLs printed by Modal for that deployment.
 
 The code configures 150-second timeouts for web services and 30-minute timeouts
 for ISM workers. The gateway uses Modal FunctionCall IDs as job IDs and retrieves

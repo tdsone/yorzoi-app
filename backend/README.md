@@ -3,6 +3,11 @@
 One model-agnostic service for **shorkie**, **yorzoi**, **borzoi** and **flashzoi**.
 DNA in, per-track coverage out.
 
+Use our hosted deployment with the [Python quickstart](../docs/users.md#python-quickstart).
+The [public service URLs](../docs/users.md#connecting-to-the-versioned-api) cover
+all four prediction models and the ISM gateway; no Modal account or local model
+installation is needed to call them.
+
 The models differ only in constants — window size, crop, bin size, track count — so
 they share one implementation of validation, tiling, stitching, track selection and
 serialization. Adding a model is a `ModelSpec` plus an adapter; flashzoi is borzoi's
